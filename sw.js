@@ -1,5 +1,5 @@
 // Service worker : l'appli et Stockfish fonctionnent hors ligne après la première visite.
-const CACHE = 'caissa-v1.0.0';
+const CACHE = 'caissa-v1.0.1';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/pieces.css',
@@ -9,7 +9,7 @@ const ASSETS = [
   'data/puzzles.json',
   'fonts/cormorant-garamond-latin-500-normal.woff2', 'fonts/cormorant-garamond-latin-600-normal.woff2',
   'fonts/cormorant-garamond-latin-700-normal.woff2', 'fonts/cormorant-garamond-latin-600-italic.woff2',
-  'icons/logo-small.svg', 'icons/app-icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'icons/logo-small.svg', 'icons/caissa-icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon-v2.png',
 ];
 
 self.addEventListener('install', e => {

@@ -10,7 +10,7 @@ import { dueMistakes, weaknessStats, CATEGORIES, listGames } from './games.js';
 import { advice } from './notebook.js';
 import { engine } from './engine.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.1';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
