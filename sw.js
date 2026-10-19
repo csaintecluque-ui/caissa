@@ -1,5 +1,5 @@
 // Service worker : l'appli et Stockfish fonctionnent hors ligne après la première visite.
-const CACHE = 'caissa-v1.1.0';
+const CACHE = 'caissa-v1.1.1';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/pieces.css',

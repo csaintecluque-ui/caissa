@@ -5,7 +5,7 @@ import { Chess, $, $$, esc, uciToMove, moveToUci, destsFor, checkSquare, moveSou
 import { store, settings } from './store.js';
 import { engine, lineWin, formatEval } from './engine.js';
 import { listGames, getGame, saveGame, deleteGame, analyseGame, addMistakesFromAnalysis, LABELS, CATEGORIES, CLASSES, CLASS_ORDER, ANALYSIS_VERSION, describeResult,
-  fetchLichessGames, fetchChesscomGames, mergeImported, splitPgn, parsePgnGame, pgnOf } from './games.js';
+  fetchLichessGames, fetchChesscomGames, mergeImported, splitPgn, parsePgnGame, pgnOf, summarize } from './games.js';
 import { askClaude, explainMovePrompt, explainPositionPrompt, hasKey } from './coach.js';
 
 let A = null;
@@ -128,6 +128,7 @@ function openFen(root, fen) {
 
 function openGame(root, g, auto) {
   if (g.analysis && g.analysis.v !== ANALYSIS_VERSION) { g.analysis = null; g.legacy = true; }
+  else if (g.analysis && g.analysis.sv !== 4) { Object.assign(g.analysis, summarize(g, g.analysis)); saveGame(g); }
   const r = describeResult(g);
   layout(root, `${esc(g.white)} – ${esc(g.black)}`, `${g.result}${r.txt && g.you ? ' · ' + r.txt : ''}`);
   const board = new Board($('#an-board', root), { orientation: g.you || 'w', onMove: (f, t, p) => explore(f, t, p) });
@@ -398,7 +399,7 @@ function renderSummary() {
   }
   const yc = g.you;
   const names = { w: g.white, b: g.black };
-  const elo = s => an.estElo?.[s] ? `≈ ${an.estElo[s]}` : '—';
+  const elo = s => an.botSide?.[s] ? `${an.estElo[s]}<small class="tiny muted" style="display:block;font-family:var(--sans);font-weight:500">son niveau</small>` : an.estElo?.[s] ? `≈ ${an.estElo[s]}` : '—';
   const rows = CLASS_ORDER.map(k => `<span class="cls-row">${clsIcon(k)}${CLASSES[k].name}</span><span class="v" style="color:${an.classes.w[k] ? CLASSES[k].color : ''}">${an.classes.w[k]}</span><span class="v" style="color:${an.classes.b[k] ? CLASSES[k].color : ''}">${an.classes.b[k]}</span>`).join('');
   const keyMoves = yc ? an.moves.map((m, i) => ({ m, i })).filter(x => an.positions[x.i].turn === yc && ['blunder', 'miss', 'mistake', 'brilliant', 'great'].includes(x.m.cls)) : [];
   const eloLine = g.rated && g.eloBefore != null ? `<div class="elo-change small"><span>Ton Elo Caïssa</span><b>${g.eloBefore} → ${g.eloAfter}</b><em class="${g.eloAfter >= g.eloBefore ? 'good-t' : 'bad-t'}">${g.eloAfter >= g.eloBefore ? '+' : ''}${g.eloAfter - g.eloBefore}</em></div>` : '';
@@ -421,7 +422,7 @@ function renderSummary() {
       <span>Finale</span><span class="v">${phaseMark(an.phases?.w.endgame)}</span><span class="v">${phaseMark(an.phases?.b.endgame)}</span>
     </div>
     ${keyMoves.length ? `<p class="small" style="margin:12px 0 4px"><b>Tes moments clés</b></p><div class="chips">${keyMoves.map(x => `<button class="chip" data-k="${x.i}">${clsIcon(x.m.cls)} ${esc(moveLabel(x.i))}</button>`).join('')}</div>` : ''}
-    <p class="tiny muted" style="margin:10px 0 0">Elo estimé : d'après la perte moyenne par coup (${an.acpl?.w ?? '—'} / ${an.acpl?.b ?? '—'} centipions). Indicatif, plus fiable sur les parties longues.</p>
+    <p class="tiny muted" style="margin:10px 0 0">Elo estimé : calculé sur les coups joués tant que la partie était encore indécise (${an.estN?.[yc || 'w'] ?? 0} coups ici), en partant de ton niveau actuel. Une seule partie le fait bouger de 500 points au plus : il faut plusieurs parties pour mesurer un niveau.</p>
     ${!yc ? sideChooser(g) : ''}`;
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => go(+b.dataset.k + 1));
   bindSideChooser(el);

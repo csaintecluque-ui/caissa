@@ -11,7 +11,7 @@ import { advice } from './notebook.js';
 import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.1.1';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;

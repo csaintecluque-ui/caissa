@@ -4,7 +4,7 @@ import { Chess, uciToMove, moveToUci, pvToSan, sanFr, PIECE_VAL } from './util.j
 import { store, settings, uid } from './store.js';
 import { engine, lineWin, lineValue } from './engine.js';
 import { OPENINGS } from './openings.js';
-import { eloFromAcpl } from './rating.js';
+import { eloFromAcpl, playerRating } from './rating.js';
 
 const MAX_GAMES = 80;
 
@@ -298,22 +298,67 @@ export async function analyseGame(g, { depth, onProgress, isCancelled } = {}) {
     if (label === 'blunder' || label === 'mistake') entry.category = categorize(before, after, g.moves[i]);
     moves.push(entry);
   }
-  const side = s => moves.filter((_, i) => positions[i].turn === s);
-  const acc = { w: avg(side('w').map(m => m.acc)), b: avg(side('b').map(m => m.acc)) };
-  const counts = { w: count(moves, positions, 'w'), b: count(moves, positions, 'b') };
-  const classes = { w: countCls(side('w')), b: countCls(side('b')) };
-  const acpl = {}, estElo = {}, phases = {};
+  const an = { v: ANALYSIS_VERSION, depth, positions, moves, opening, at: Date.now() };
+  return Object.assign(an, summarize(g, an));
+}
+
+// Niveau connu d'un joueur, servant de point d'appui à l'estimation
+function priorFor(g, side) {
+  const tag = +(side === 'w' ? g.whiteElo : g.blackElo);
+  if (tag) return tag;
+  if (g.you === side) return g.eloBefore ?? playerRating().elo;
+  if (g.botElo) return g.botElo;
+  return 1200;
+}
+
+// Précision de partie : moyenne entre la moyenne simple et la moyenne harmonique
+// (qui pénalise fortement les gaffes), comme le fait Lichess.
+function gameAccuracy(list) {
+  if (!list.length) return null;
+  const mean = list.reduce((t, x) => t + x, 0) / list.length;
+  const harm = list.length / list.reduce((t, x) => t + 1 / Math.max(10, x), 0);
+  return Math.round((mean + harm) / 2);
+}
+
+/**
+ * Précision, Elo estimé et précision par phase.
+ * Seuls les coups joués quand la partie était encore indécise (chances de gain entre 10 et 90 %)
+ * renseignent vraiment sur le niveau : une fois une dame d'avance, presque tous les coups « gagnent ».
+ * L'estimation est ensuite pondérée par le niveau connu du joueur (une partie seule prouve peu).
+ */
+export function summarize(g, an) {
+  const { positions, moves } = an;
+  const all = s => moves.map((m, i) => ({ m, i })).filter(x => positions[x.i].turn === s);
+  const winMover = i => (positions[i].turn === 'w' ? positions[i].win : 100 - positions[i].win);
+  const acc = {}, acpl = {}, estElo = {}, estN = {}, phases = {}, classes = {}, counts = {}, botSide = {};
   for (const s of ['w', 'b']) {
-    const ms = side(s).filter(m => m.cls !== 'book');
-    acpl[s] = ms.length ? Math.round(ms.reduce((t, m) => t + m.loss, 0) / ms.length) : null;
-    estElo[s] = ms.length >= 8 ? eloFromAcpl(acpl[s]) : null;
+    const list = all(s);
+    const played = list.filter(x => x.m.cls !== 'book');
+    const open = played.filter(x => { const w = winMover(x.i); return w >= 10 && w <= 90; });
+    const accSet = open.length >= 6 ? open : played.length ? played : list;
+    acc[s] = gameAccuracy(accSet.map(x => x.m.acc));
+    acpl[s] = open.length ? Math.round(open.reduce((t, x) => t + Math.min(1000, x.m.loss), 0) / open.length) : null;
+    const prior = priorFor(g, s);
+    const n = open.length, K = 20;
+    if (g.botElo && g.you && s !== g.you) {
+      // un personnage de Caïssa a un niveau connu : on l'affiche tel quel
+      estElo[s] = g.botElo; botSide[s] = true;
+    } else {
+      let E = acpl[s] != null ? eloFromAcpl(acpl[s]) : prior;
+      // une seule partie ne peut pas déplacer l'estimation de plus de 500 points
+      E = Math.max(prior - 500, Math.min(prior + 500, E));
+      estElo[s] = list.length >= 6 ? Math.max(100, Math.round(((n * E + K * prior) / (n + K)) / 25) * 25) : null;
+    }
+    estN[s] = n;
     phases[s] = {};
     for (const ph of ['opening', 'middlegame', 'endgame']) {
-      const p = side(s).filter(m => m.phase === ph);
-      phases[s][ph] = p.length >= 2 ? avg(p.map(m => m.acc)) : null;
+      const p = list.filter(x => x.m.phase === ph);
+      phases[s][ph] = p.length >= 2 ? gameAccuracy(p.map(x => x.m.acc)) : null;
     }
+    classes[s] = countCls(list.map(x => x.m));
+    counts[s] = count(moves, positions, s);
   }
-  return { v: ANALYSIS_VERSION, depth, positions, moves, acc, counts, classes, acpl, estElo, phases, opening, at: Date.now() };
+  return { acc, acpl, estElo, estN, botSide, phases, classes, counts, sv: 4 };
 }
 
 function avg(a) { return a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null; }
