@@ -5,36 +5,48 @@ import { Chess } from './util.js';
 import { lineValue } from './engine.js';
 
 export const BOTS = [
-  { id: 'leon', name: 'Léon', elo: 250, color: '#7a9a5c', style: 'hasard',
+  { id: 'leon', name: 'Léon', elo: 150, engineElo: 250, color: '#7a9a5c', style: 'hasard',
     bio: "Vient d'apprendre la marche des pièces. Joue un peu au hasard.",
     hello: ['Salut ! Je connais toutes les règles… enfin presque.', 'On joue ? Je suis prêt !'],
     win: ['J\'ai gagné ?! Incroyable !'], lose: ['Bien joué ! Tu m\'apprendras ?'], draw: ['Match nul, c\'est déjà pas mal !'] },
-  { id: 'margaux', name: 'Margaux', elo: 450, color: '#c0607a', style: 'dame',
+  { id: 'margaux', name: 'Margaux', elo: 500, engineElo: 450, color: '#c0607a', style: 'dame',
     bio: 'Adore sortir sa dame très tôt… parfois trop tôt.',
     hello: ['Ma dame est impatiente de jouer !'], win: ['La dame a encore frappé !'], lose: ['Il faut peut-être que je ménage ma dame…'], draw: ['Égalité, on remet ça ?'] },
-  { id: 'bastien', name: 'Bastien', elo: 650, color: '#d08a3a', style: 'gourmand',
+  { id: 'bastien', name: 'Bastien', elo: 650, engineElo: 650, color: '#d08a3a', style: 'gourmand',
     bio: 'Prend tout ce qui traîne, sans toujours regarder derrière.',
     hello: ['Laisse traîner une pièce, pour voir…'], win: ['Miam, merci pour les pièces !'], lose: ['J\'ai trop mangé, je crois.'], draw: ['Partage des points !'] },
-  { id: 'ines', name: 'Inès', elo: 850, color: '#4f86a8', style: 'prudent',
+  { id: 'ines', name: 'Inès', elo: 850, engineElo: 770, color: '#4f86a8', style: 'prudent',
     bio: 'Prudente : elle roque vite et aime échanger les pièces.',
     hello: ['Doucement mais sûrement.'], win: ['La patience paie toujours.'], lose: ['Bravo, tu as été plus solide que moi.'], draw: ['Une nulle bien méritée.'] },
-  { id: 'victor', name: 'Victor', elo: 1000, color: '#a8553a', style: 'attaque',
-    bio: 'Joueur de club qui cherche l\'attaque sur ton roi dès qu\'il peut.',
+  { id: 'victor', name: 'Victor', elo: 1100, maia: 1100, color: '#a8553a',
+    bio: 'Joueur de club qui aime attaquer. Fait les erreurs typiques des joueurs à 1100.',
     hello: ['Ton roi a intérêt à être bien protégé.'], win: ['L\'attaque, toujours l\'attaque !'], lose: ['Ta défense a tenu, chapeau.'], draw: ['Pas mal, pas mal…'] },
-  { id: 'chloe', name: 'Chloé', elo: 1200, color: '#6b5ea8', style: 'positionnel',
-    bio: 'Solide et méthodique, elle punit les pièces laissées en prise.',
+  { id: 'chloe', name: 'Chloé', elo: 1250, maia: 1200, color: '#6b5ea8',
+    bio: 'Solide et méthodique, elle punit souvent les pièces laissées en prise.',
     hello: ['Développe tes pièces, et que la meilleure gagne.'], win: ['Chaque pièce non défendue se paie.'], lose: ['Belle partie, tu m\'as eue.'], draw: ['Une partie équilibrée.'] },
-  { id: 'hugo', name: 'Hugo', elo: 1400, color: '#2f8a7a', style: 'tacticien',
+  { id: 'nora', name: 'Nora', elo: 1400, maia: 1300, color: '#3d7f9e',
+    bio: 'Connaît ses ouvertures et ne lâche rien en finale.',
+    hello: ['On commence par une ouverture classique ?'], win: ['La finale, c\'est là que tout se joue.'], lose: ['Bien joué, je n\'ai rien vu venir.'], draw: ['Nulle, partie serrée !'] },
+  { id: 'hugo', name: 'Hugo', elo: 1450, maia: 1400, color: '#2f8a7a',
     bio: 'Tacticien : fourchettes et clouages sont son terrain de jeu.',
     hello: ['Attention aux fourchettes…'], win: ['Tu l\'avais vue venir, celle-là ?'], lose: ['Joli, tu as évité mes pièges.'], draw: ['Nulle, on était à deux doigts !'] },
-  { id: 'solene', name: 'Solène', elo: 1600, color: '#b8862e', style: 'positionnel',
+  { id: 'antoine', name: 'Antoine', elo: 1500, maia: 1500, color: '#8a6d3b',
+    bio: 'Joueur régulier de tournois du dimanche. Rarement pressé.',
+    hello: ['Bonne partie !'], win: ['Il faut contrôler le centre.'], lose: ['Bravo, joli travail.'], draw: ['Nulle, bonne partie.'] },
+  { id: 'solene', name: 'Solène', elo: 1650, maia: 1600, color: '#b8862e',
     bio: 'Fine stratège, rarement prise en défaut.',
-    hello: ['Je te laisse les Blancs ? Non, on tire au sort.'], win: ['Il faut améliorer tes pièces une par une.'], lose: ['Impressionnant. Tu progresses vite.'], draw: ['Nulle méritée.'] },
-  { id: 'professeur', name: 'Le Professeur', elo: 1800, color: '#5a4636', style: 'equilibre',
+    hello: ['Que la meilleure stratégie gagne.'], win: ['Il faut améliorer tes pièces une par une.'], lose: ['Impressionnant. Tu progresses vite.'], draw: ['Nulle méritée.'] },
+  { id: 'mathis', name: 'Mathis', elo: 1750, maia: 1700, color: '#5b7a3a',
+    bio: 'Joue vite et juste. Il faut le pousser à la faute.',
+    hello: ['Prêt ? Je joue vite, moi.'], win: ['Trop lent !'], lose: ['Bien tenu, chapeau.'], draw: ['Match nul.'] },
+  { id: 'professeur', name: 'Le Professeur', elo: 1850, maia: 1800, color: '#5a4636',
     bio: 'Ancien entraîneur de club : il exploite chaque imprécision.',
     hello: ['Montre-moi ce que tu as appris.'], win: ['Revois tes imprécisions dans le bilan.'], lose: ['Excellent travail, élève !'], draw: ['Une partie très instructive.'] },
-  { id: 'sentinelle', name: 'La Sentinelle', elo: 2200, color: '#2c3e50', style: 'equilibre',
-    bio: 'Presque aucune erreur. Pour les jours de très grande forme.',
+  { id: 'elise', name: 'Élise', elo: 1950, maia: 1900, color: '#7a3d5c',
+    bio: 'Le plus haut niveau humain de Caïssa : solide partout.',
+    hello: ['Allons-y.'], win: ['Il faudra encore travailler.'], lose: ['Remarquable partie.'], draw: ['Nulle honorable.'] },
+  { id: 'sentinelle', name: 'La Sentinelle', elo: 2500, engineElo: 2200, color: '#2c3e50', style: 'equilibre',
+    bio: 'Presque aucune erreur : elle a gagné toutes ses parties contre Élise. Au moins 2500.',
     hello: ['…'], win: ['Prévisible.'], lose: ['Remarquable.'], draw: ['Acceptable.'] },
   { id: 'stockfish', name: 'Caïssa sans limite', elo: 3000, color: '#1B1512', style: 'max',
     bio: 'Stockfish à pleine puissance. Pour voir à quoi ressemble la perfection.',
@@ -69,8 +81,20 @@ export function paramsForElo(elo) {
   return { ...CURVE[CURVE.length - 1][1] };
 }
 
+// Mesures (matchs contre Maia 1100) : réglage moteur → niveau réel
+const MEASURED = [[145, 250], [525, 450], [655, 650], [980, 850], [1195, 1000]];
+function engineEloFor(target) {
+  if (target <= MEASURED[0][0]) return MEASURED[0][1];
+  for (let i = 1; i < MEASURED.length; i++) {
+    const [m1, e1] = MEASURED[i - 1], [m2, e2] = MEASURED[i];
+    if (target <= m2) return Math.round(e1 + ((target - m1) / (m2 - m1)) * (e2 - e1));
+  }
+  return target;
+}
+
 export function customBot(elo) {
-  return { id: 'custom', name: 'Caïssa', elo, color: '#a65f2c', style: 'equilibre', custom: true,
+  const maia = elo >= 1100 && elo <= 1950 ? humanLevelFor(elo) : null;
+  return { id: 'custom', name: 'Caïssa', elo, maia, engineElo: elo < 1100 ? engineEloFor(elo) : elo, color: '#a65f2c', style: 'equilibre', custom: true,
     bio: 'Adversaire réglable : choisis exactement son niveau.',
     hello: ['Prêt·e ? C\'est parti.'], win: ['Je gagne cette fois-ci.'], lose: ['Bien joué !'], draw: ['Partie nulle.'] };
 }
@@ -78,6 +102,64 @@ export function customBot(elo) {
 export function botById(id, elo) {
   if (id === 'custom') return customBot(elo || 1000);
   return BOTS.find(b => b.id === id) || BOTS[4];
+}
+
+// Niveaux « humains » : Maia propose des coups comme un joueur de ce niveau, et Stockfish
+// écarte une partie des grosses gaffes (seuil en % de chances de gain, probabilité de veto).
+// Les réseaux Maia seuls sont trop proches en force les uns des autres : ce filtre étale
+// l'échelle de 1100 à 1900. Paramètres calibrés par des matchs entre personnages.
+export const HUMAN_LEVELS = {
+  1100: { thr: 100, q: 0 },
+  1200: { thr: 40, q: 0.5 },
+  1300: { thr: 30, q: 0.6 },
+  1400: { thr: 25, q: 0.7 },
+  1500: { thr: 20, q: 0.8 },
+  1600: { thr: 16, q: 0.85 },
+  1700: { thr: 12, q: 0.9 },
+  1800: { thr: 9, q: 0.95 },
+  1900: { thr: 7, q: 1 },
+};
+export function humanParams(level) {
+  const k = Math.max(1100, Math.min(1900, Math.round(level / 100) * 100));
+  return { model: k, ...HUMAN_LEVELS[k] };
+}
+// Niveau réel mesuré de chaque réglage (matchs en chaîne, ancré sur Maia 1100 = 1100)
+export const HUMAN_MEASURED = { 1100: 1100, 1200: 1250, 1300: 1400, 1400: 1460, 1500: 1520, 1600: 1635, 1700: 1750, 1800: 1845, 1900: 1940 };
+function humanLevelFor(target) {
+  let best = 1100, d = Infinity;
+  for (const [k, v] of Object.entries(HUMAN_MEASURED)) if (Math.abs(v - target) < d) { d = Math.abs(v - target); best = +k; }
+  return best;
+}
+
+/**
+ * Coup « humain » : tirage selon Maia, puis veto éventuel de Stockfish sur les gaffes.
+ * evaluate(ucis) → Map(uci → chances de gain du camp au trait, 0-100).
+ */
+export async function humanMove(policyMoves, level, evaluate, floor = 0.02) {
+  const P = humanParams(level);
+  let cands = policyMoves.filter(m => m.p >= floor);
+  if (!cands.length) cands = policyMoves.slice(0, 1);
+  if (!P.q) return sampleMaia(cands, 1, 0);
+  const wins = await evaluate(cands.map(m => m.uci));
+  if (!wins || !wins.size) return sampleMaia(cands, 1, 0);
+  const best = Math.max(...wins.values());
+  for (let tries = 0; tries < 4 && cands.length > 1; tries++) {
+    const u = sampleMaia(cands, 1, 0);
+    const w = wins.get(u);
+    if (w == null || best - w <= P.thr || Math.random() >= P.q) return u;
+    cands = cands.filter(m => m.uci !== u);
+  }
+  return sampleMaia(cands, 1, 0);
+}
+
+/** Tire un coup selon la politique Maia (comme le ferait un humain de ce niveau). */
+export function sampleMaia(moves, T = 1, floor = 0.02) {
+  let c = moves.filter(m => m.p >= floor);
+  if (!c.length) c = moves.slice(0, 1);
+  const w = c.map(m => Math.pow(m.p, 1 / T));
+  let x = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < c.length; i++) { x -= w[i]; if (x <= 0) return c[i].uci; }
+  return c[0].uci;
 }
 
 export function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -131,7 +213,7 @@ function styleBonus(style, chess, m) {
 
 /** r : résultat d'analyse multipv ; renvoie un coup UCI. */
 export function chooseMove(r, bot, fen) {
-  const P = paramsForElo(bot.elo);
+  const P = paramsForElo(bot.engineElo ?? bot.elo);
   const chess = new Chess(fen);
   const legal = chess.moves({ verbose: true });
   if (!legal.length) return null;

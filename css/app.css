@@ -336,3 +336,5 @@ details.lesson ul { padding-left: 18px; }
 .sq-mark.c-blunder::before { content: '??'; background: #c4352a; }
 .setup > div > b:first-child { display: block; }
 .mv.on .gl { color: inherit !important; }
+.bot-kind { grid-column: 1 / -1; justify-self: start; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); }
+.bot-kind.human { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }

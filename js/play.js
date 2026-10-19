@@ -5,7 +5,8 @@ import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, move
 import { store, settings } from './store.js';
 import { engine, lineValue, lineWin } from './engine.js';
 import { gameFromChess, saveGame } from './games.js';
-import { BOTS, botById, avatar, chooseMove, pick, paramsForElo } from './bots.js';
+import { BOTS, botById, avatar, chooseMove, pick, paramsForElo, humanMove, humanParams } from './bots.js';
+import { loadMaia, movePolicy } from './maia.js';
 import { playerRating, applyResult, stakes } from './rating.js';
 
 const CADENCES = [
@@ -57,20 +58,20 @@ function renderSetup(root) {
   root.innerHTML = `
   <div class="stack" style="max-width:720px;margin:0 auto">
     <div class="row between" style="align-items:flex-end">
-      <div><h2>Nouvelle partie</h2><p class="muted" style="margin:4px 0 0">Choisis ton adversaire. Les Elo sont indicatifs.</p></div>
+      <div><h2>Nouvelle partie</h2><p class="muted" style="margin:4px 0 0">Choisis ton adversaire. De 1100 à 1950, les personnages jouent avec <b>Maia</b>, une IA entraînée sur de vraies parties Lichess : ils jouent et se trompent comme des humains. Tous les Elo affichés ont été mesurés par des matchs entre personnages (échelle Lichess).</p></div>
       <div class="elo-chip"><span>Ton Elo</span><b>${me.elo}</b>${me.games < 10 ? '<em>provisoire</em>' : ''}</div>
     </div>
     <div class="bots" id="bots">
       ${BOTS.map(b => `<button class="bot ${p.botId === b.id ? 'on' : ''}" data-id="${b.id}">
         ${avatar(b, 42)}<span class="bot-t"><b>${esc(b.name)}</b><span class="bot-elo">${b.elo}</span></span>
-        <span class="bot-bio">${esc(b.bio)}</span>${rec(b.id) ? `<span class="bot-rec">${rec(b.id)}</span>` : ''}</button>`).join('')}
+        <span class="bot-bio">${esc(b.bio)}</span><span class="bot-kind ${b.maia ? 'human' : ''}">${b.maia ? 'Jeu humain · Maia' : b.elo >= 2500 ? 'Moteur Stockfish' : 'Stockfish bridé'}</span>${rec(b.id) ? `<span class="bot-rec">${rec(b.id)}</span>` : ''}</button>`).join('')}
       <button class="bot ${p.botId === 'custom' ? 'on' : ''}" data-id="custom">
         ${avatar(botById('custom'), 42)}<span class="bot-t"><b>Caïssa réglable</b><span class="bot-elo" id="cus-elo">${p.customElo}</span></span>
-        <span class="bot-bio">Choisis exactement son niveau, de 250 à 2200.</span>${rec('custom') ? `<span class="bot-rec">${rec('custom')}</span>` : ''}</button>
+        <span class="bot-bio">Choisis exactement son niveau, de 150 à 1950 (jeu humain à partir de 1100).</span>${rec('custom') ? `<span class="bot-rec">${rec('custom')}</span>` : ''}</button>
     </div>
     <div class="card ${p.botId === 'custom' ? '' : 'hidden'}" id="cus-box">
       <div class="row between"><b>Niveau de Caïssa réglable</b><span class="badge" id="cus-lab">${p.customElo}</span></div>
-      <input type="range" min="250" max="2200" step="50" value="${p.customElo}" id="cus" style="margin-top:10px">
+      <input type="range" min="150" max="1950" step="50" value="${p.customElo}" id="cus" style="margin-top:10px">
     </div>
     <div class="card stack setup">
       <div><b>Tu joues</b><div class="seg" id="col" style="margin-top:8px">
@@ -471,10 +472,33 @@ async function botMove() {
   sync(false);
   const t0 = performance.now();
   const fen = s.chess.fen();
-  const P = paramsForElo(s.bot.elo);
-  const r = await engine.analyse(fen, { depth: P.depth, multipv: P.mpv });
-  if (S !== s || s.over || !r || (s.token || 0) !== token) return;
-  const uci = chooseMove(r, s.bot, fen);
+  let uci = null;
+  if (s.bot.maia) {
+    try {
+      if (!s.maiaReady) status(`${s.bot.custom ? 'Caïssa' : s.bot.name} s'installe… (premier chargement, 1,7 Mo)`);
+      if (S !== s) return;
+      const level = s.bot.maia;
+      const model = await loadMaia(humanParams(level).model);
+      s.maiaReady = true;
+      if (S !== s || s.over || (s.token || 0) !== token) return;
+      await new Promise(r => setTimeout(r, 30)); // laisse l'écran se mettre à jour
+      const fens = [s.g.startFen];
+      const c = new Chess(s.g.startFen);
+      for (const u of s.g.moves) { uciToMove(c, u); fens.push(c.fen()); }
+      const pol = movePolicy(model, fens, s.g.startFen === new Chess().fen()).moves;
+      uci = await humanMove(pol, level, async ucis => {
+        const r = await engine.analyse(fen, { depth: 8, multipv: ucis.length, searchmoves: ucis });
+        return r ? new Map(r.lines.map(l => [l.move, lineWin(l)])) : null;
+      });
+    } catch (e) { console.warn('Maia indisponible, repli sur Stockfish', e); }
+  }
+  if (!uci) {
+    const P = paramsForElo(s.bot.engineElo ?? s.bot.elo);
+    const r = await engine.analyse(fen, { depth: P.depth, multipv: P.mpv });
+    if (S !== s || s.over || !r || (s.token || 0) !== token) return;
+    uci = chooseMove(r, s.bot, fen);
+  }
+  if (S !== s || s.over || (s.token || 0) !== token) return;
   let think = 350 + Math.random() * 900;
   if (s.g.clocks) {
     const left = s.g.clocks[s.chess.turn()] - (performance.now() - s.turnStart);

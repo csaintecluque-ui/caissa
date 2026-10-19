@@ -82,7 +82,7 @@ class Engine {
     this.send(`position fen ${job.fen}`);
     if (o.movetime) this.send(`go movetime ${o.movetime}`);
     else if (o.infinite) this.send('go infinite');
-    else this.send(`go depth ${o.depth || 12}`);
+    else this.send(`go depth ${o.depth || 12}${o.searchmoves ? " searchmoves " + o.searchmoves.join(" ") : ""}`);
   }
 
   cancelAll() {

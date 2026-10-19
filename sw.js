@@ -1,12 +1,12 @@
 // Service worker : l'appli et Stockfish fonctionnent hors ligne après la première visite.
-const CACHE = 'caissa-v1.1.1';
+const CACHE = 'caissa-v1.2.0';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/pieces.css',
   'js/app.js', 'js/board.js', 'js/engine.js', 'js/store.js', 'js/util.js', 'js/coach.js',
-  'js/games.js', 'js/bots.js', 'js/rating.js', 'js/openings.js', 'js/puzzles.js', 'js/play.js', 'js/analysis.js', 'js/notebook.js', 'js/lib/chess.js',
+  'js/games.js', 'js/bots.js', 'js/rating.js', 'js/openings.js', 'js/maia.js', 'js/puzzles.js', 'js/play.js', 'js/analysis.js', 'js/notebook.js', 'js/lib/chess.js',
   'engine/stockfish-19-lite-single.js', 'engine/stockfish-19-lite-single.wasm',
-  'data/puzzles.json',
+  'data/puzzles.json', 'maia/policy.json',
   'fonts/cormorant-garamond-latin-500-normal.woff2', 'fonts/cormorant-garamond-latin-600-normal.woff2',
   'fonts/cormorant-garamond-latin-700-normal.woff2', 'fonts/cormorant-garamond-latin-600-italic.woff2',
   'icons/logo-small.svg', 'icons/caissa-icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon-v2.png',

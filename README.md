@@ -5,7 +5,7 @@ Application web installable (PWA) pour progresser aux échecs : problèmes adapt
 ## Ce que fait l'appli
 
 - **Problèmes** : réserve hors ligne générée avec Stockfish, complétée automatiquement par les problèmes de Lichess dès que tu es connecté (thèmes : pièce en prise, fourchette, clouage, mat en 1/2…). Ton niveau problèmes s'ajuste à chaque essai (départ à 1000).
-- **Jouer** : 11 personnages avec leur Elo et leur style (Léon 250, Margaux 450, Bastien 650, Inès 850, Victor 1000, Chloé 1200, Hugo 1400, Solène 1600, Le Professeur 1800, La Sentinelle 2200, Caïssa sans limite 3000) et une Caïssa réglable de 250 à 2200. Pendule (15 + 10, 10 min, 5 + 3) et deux modes :
+- **Jouer** : 15 personnages. De 1100 à 1900 (Victor, Chloé, Nora, Hugo, Antoine, Solène, Mathis, Le Professeur, Élise), ils jouent avec **Maia**, des réseaux de neurones entraînés sur des millions de parties Lichess pour jouer — et se tromper — comme des humains de ce niveau. En dessous (Léon, Margaux, Bastien, Inès) et au-dessus (La Sentinelle, Caïssa sans limite), c'est Stockfish bridé, calibré par des matchs contre Maia. Plus une Caïssa réglable de 250 à 2200. Pendule (15 + 10, 10 min, 5 + 3) et deux modes :
   - *Entraînement* : annuler son coup, indice, menace adverse, routine Échecs · Prises · Menaces, filet anti-gaffe ;
   - *Classée* : aucune aide, la partie compte pour ton **Elo Caïssa** (départ 1000, modifiable dans les réglages).
 - **Bilan de partie** : chaque coup classé par Stockfish 19 (brillant, très fort, meilleur, excellent, bon, théorie, imprécision, erreur, occasion manquée, gaffe), nom de l'ouverture, précision globale et par phase, **Elo estimé sur la partie**, courbe d'évaluation, commentaire de chaque coup, exploration libre. Import de tes parties Lichess, Chess.com ou PGN collé.
@@ -38,6 +38,7 @@ Les données (parties, carnet, niveau) sont stockées sur l'appareil. Réglages 
 
 - Moteur : [Stockfish 19](https://stockfishchess.org) via stockfish.js (Nathan Rugg) — GPL v3. Voir `engine/COPYING-stockfish.txt`.
 - Règles : [chess.js](https://github.com/jhlywa/chess.js) — BSD-2.
+- Personnages humains : [Maia](https://maiachess.com) (CSSLab, Université de Toronto) — GPL v3. Réseaux convertis depuis le format Leela Chess Zero (`maia/`), inférence en JavaScript.
 - Pièces : jeu « cburnett » (Colin M.L. Burnett) — GPL v2+.
 - Problèmes en ligne : base publique de [Lichess](https://database.lichess.org) — CC0.
 - Police : Cormorant Garamond — SIL Open Font License.

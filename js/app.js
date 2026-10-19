@@ -11,7 +11,7 @@ import { advice } from './notebook.js';
 import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
 
-export const VERSION = '1.1.1';
+export const VERSION = '1.2.0';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -74,7 +74,7 @@ function home() {
         </div>
         <div class="actions">
           <a class="action" href="#/problemes">${ICONS.puzzle}<b>Problèmes</b><span>Thème : ${THEMES[theme] || 'Mélange'} · adaptés à ton niveau</span></a>
-          <a class="action" href="#/jouer">${ICONS.play}<b>${cur ? 'Reprendre' : 'Jouer'}</b><span>${cur ? 'Ta partie t\'attend' : '11 personnages de 250 à 3000 Elo'}</span></a>
+          <a class="action" href="#/jouer">${ICONS.play}<b>${cur ? 'Reprendre' : 'Jouer'}</b><span>${cur ? 'Ta partie t\'attend' : '15 personnages, dont 9 qui jouent comme des humains'}</span></a>
           <a class="action" href="${toAnalyse ? '#/analyse?game=' + toAnalyse.id + '&auto=1' : '#/analyse'}">${ICONS.analyse}<b>Analyser</b><span>${toAnalyse ? 'Dernière partie pas encore analysée' : 'Tes parties, Lichess, Chess.com'}</span></a>
           <a class="action" href="${due ? '#/carnet?review=1' : '#/carnet'}">${ICONS.book}<b>Carnet</b><span>${due ? `${due} erreur${due > 1 ? 's' : ''} à revoir` : 'Tes erreurs deviennent des exercices'}</span></a>
         </div>
@@ -145,7 +145,7 @@ function openSettings() {
       </div>
       <div><b>Sauvegarde</b><p class="muted small" style="margin:4px 0 8px">Tes données sont stockées sur cet appareil. Exporte-les pour les transférer ou les mettre à l'abri.</p>
         <div class="row"><button class="btn sm" id="st-export">Exporter</button><label class="btn sm">Importer<input type="file" id="st-import" accept="application/json" hidden></label><button class="btn sm danger" id="st-reset">Tout effacer</button></div></div>
-      <p class="muted small" style="margin:0">Caïssa ${VERSION} · Moteur Stockfish 19 (GPL v3) · pièces cburnett · problèmes Lichess (CC0) et générés par Stockfish.</p>
+      <p class="muted small" style="margin:0">Caïssa ${VERSION} · Moteur Stockfish 19 (GPL v3) · personnages humains Maia, CSSLab Université de Toronto (GPL v3) · pièces cburnett · problèmes Lichess (CC0) et générés par Stockfish.</p>
       <div class="row end"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="st-save">Enregistrer</button></div>
     </div>`, {
     onMount: (m, close) => {
