@@ -159,7 +159,7 @@ function conclude(success, san, note) {
 
 async function explain(m) {
   const box = $('#nb-coach', N.root);
-  if (!hasKey()) { box.innerHTML = '<div class="coach">Ajoute ta clé API Claude dans les réglages (⚙︎) pour obtenir une explication rédigée.</div>'; return; }
+  if (!hasKey()) { box.innerHTML = '<div class="coach">Pour une explication rédigée, choisis ton professeur IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).</div>'; return; }
   box.innerHTML = '<div class="coach loading">Caïssa réfléchit…</div>';
   const turn = m.fen.split(' ')[1];
   const after = new Chess(m.fen); uciToMove(after, m.played);

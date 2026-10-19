@@ -566,7 +566,7 @@ async function runAnalysis() {
 // --- explications -----------------------------------------------------------------------
 async function explainMove(k) {
   const box = $('#an-coach', A.root);
-  if (!hasKey()) { box.innerHTML = `<div class="coach">Ajoute ta clé API Claude dans les réglages (⚙︎) pour obtenir une explication rédigée.</div>`; return; }
+  if (!hasKey()) { box.innerHTML = `<div class="coach">Pour une explication rédigée, choisis ton professeur IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).</div>`; return; }
   const an = A.g.analysis, mv = an.moves[k], before = an.positions[k], after = an.positions[k + 1];
   box.innerHTML = '<div class="coach loading">Caïssa réfléchit…</div>';
   const evalTxt = (l, turn) => { const t = formatEval(l, true, turn); return `${t} (point de vue des Blancs)`; };
@@ -584,7 +584,7 @@ async function explainMove(k) {
 
 async function explainPosition() {
   const box = $('#an-coach', A.root);
-  if (!hasKey()) { box.innerHTML = `<div class="coach">Ajoute ta clé API Claude dans les réglages (⚙︎) pour obtenir une explication rédigée.</div>`; return; }
+  if (!hasKey()) { box.innerHTML = `<div class="coach">Pour une explication rédigée, choisis ton professeur IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).</div>`; return; }
   const fen = curFen();
   const lines = A.liveLines || [];
   if (!lines.length) { box.innerHTML = '<div class="coach">Attends que le moteur ait calculé la position.</div>'; return; }

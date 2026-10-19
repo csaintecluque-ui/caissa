@@ -326,7 +326,7 @@ async function showSolution() {
 async function explain() {
   const s = state;
   const box = $('#pz-coach', s.root);
-  if (!hasKey()) { box.innerHTML = `<div class="coach">Pour des explications rédigées, ajoute ta clé API Claude dans les réglages (⚙︎ en haut à droite).</div>`; return; }
+  if (!hasKey()) { box.innerHTML = `<div class="coach">Pour une explication rédigée, choisis ton professeur IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).</div>`; return; }
   box.innerHTML = '<div class="coach loading">Caïssa réfléchit…</div>';
   const start = afterFirst(s.puzzle);
   try {

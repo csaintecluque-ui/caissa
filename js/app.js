@@ -10,8 +10,9 @@ import { dueMistakes, weaknessStats, CATEGORIES, listGames } from './games.js';
 import { advice } from './notebook.js';
 import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
+import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings } from './ai.js';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.2.1';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -121,11 +122,10 @@ function openSettings() {
     <div class="stack">
       <label class="field">Ton prénom<input id="st-name" value="${esc(s.playerName && s.playerName !== 'Moi' ? s.playerName : '')}" placeholder="Moi"></label>
       <div class="card" style="box-shadow:none">
-        <b>Explications par Claude</b>
-        <p class="muted small" style="margin:4px 0 8px">Ta clé API reste uniquement sur cet appareil. Elle sert aux boutons « Expliquer ».</p>
-        <label class="field">Clé API<input id="st-key" type="password" value="${esc(s.apiKey)}" placeholder="sk-ant-…" autocomplete="off"></label>
-        <label class="field" style="margin-top:8px">Modèle<input id="st-model" value="${esc(s.model)}" autocomplete="off"></label>
-        <button class="btn sm" id="st-test" style="margin-top:8px">Tester la clé</button>
+        <div class="row between" style="flex-wrap:nowrap"><div style="min-width:0"><b>Professeur IA</b>
+          <p class="muted small" style="margin:2px 0 0" id="st-ai-name">${hasKey() ? esc(aiName()) : 'Pas encore configuré'}</p></div>
+          <button class="btn sm" id="st-ai">Configurer</button></div>
+        <p class="muted small" style="margin:6px 0 0">Claude, ChatGPT, Gemini, Grok, OpenRouter… comme dans Tengen. Sert aux boutons « Expliquer ».</p>
       </div>
       <div class="grid2">
         <label class="field">Pseudo Lichess<input id="st-li" value="${esc(s.lichessUser)}" autocapitalize="off"></label>
@@ -155,7 +155,7 @@ function openSettings() {
         $(id, m).querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
       }));
       const collect = () => ({
-        playerName: $('#st-name', m).value.trim() || 'Moi', apiKey: $('#st-key', m).value.trim(), model: $('#st-model', m).value.trim() || 'claude-sonnet-5-5',
+        playerName: $('#st-name', m).value.trim() || 'Moi',
         lichessUser: $('#st-li', m).value.trim(), chesscomUser: $('#st-cc', m).value.trim(), analysisDepth: +segv('#st-depth'),
         sound: $('#st-sound', m).checked, squareNames: segv('#st-names'),
       });
@@ -166,16 +166,10 @@ function openSettings() {
         const th = segv('#st-theme'); store.set('theme', th); applyTheme();
         close(); toast('Réglages enregistrés.'); route();
       };
-      $('#st-test', m).onclick = async () => {
-        settings.set(collect());
-        const { askClaude } = await import('./coach.js');
-        try { const t = await askClaude('Réponds juste « Prêt ! » en un mot.', { maxTokens: 20 }); toast('Clé valide : ' + t); }
-        catch (e) { toast(e.message, 4000); }
-      };
+      $('#st-ai', m).onclick = () => openAISettings(() => { $('#st-ai-name', m).textContent = hasKey() ? aiName() : 'Pas encore configuré'; });
       $('#st-export', m).onclick = () => {
         const data = store.exportAll();
-        delete data.settings?.apiKey;
-        if (data.settings) data.settings = { ...data.settings, apiKey: '' };
+        if (data.settings) data.settings = { ...data.settings, apiKey: '', ai: data.settings.ai ? { ...data.settings.ai, keys: {} } : undefined };
         const blob = new Blob([JSON.stringify({ app: 'caissa', version: VERSION, at: new Date().toISOString(), data }, null, 1)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -188,9 +182,9 @@ function openSettings() {
         try {
           const j = JSON.parse(await f.text());
           if (j.app !== 'caissa') throw new Error('Ce fichier ne vient pas de Caïssa.');
-          const keep = settings.get().apiKey;
+          const keep = aiSettings();
           store.importAll(j.data);
-          if (keep) settings.set({ apiKey: keep });
+          saveAiSettings(keep);
           close(); toast('Sauvegarde restaurée.'); route();
         } catch (err) { toast(err.message); }
       };
@@ -201,6 +195,87 @@ function openSettings() {
       };
     },
   });
+}
+
+// --- professeur IA (même fonctionnement que Tengen) -------------------------------------
+function openAISettings(onDone) {
+  let ai = aiSettings();
+  let key = ai.keys[ai.provider] || '', model = ai.models[ai.provider] || providerById(ai.provider).defaultModel, base = ai.customBase || '';
+  let models = null, filter = '', show = false, msg = null;
+  const tg = tengenAiSettings();
+  modal('<div id="ai-root"></div>', { wide: true, onMount: (m, close) => {
+    const root = $('#ai-root', m);
+    const choose = id => {
+      ai.provider = id;
+      key = ai.keys[id] || ''; model = ai.models[id] || providerById(id).defaultModel; models = null; filter = ''; msg = null;
+      render();
+    };
+    const save = () => {
+      ai = { ...ai, keys: { ...ai.keys, [ai.provider]: cleanKey(key) }, models: { ...ai.models, [ai.provider]: model.trim() }, customBase: base.trim() };
+      saveAiSettings(ai);
+    };
+    const render = () => {
+      const pv = providerById(ai.provider);
+      const shown = (models || []).filter(x => !filter || x.toLowerCase().includes(filter.toLowerCase())).slice(0, 60);
+      root.innerHTML = `
+        <h3>Professeur IA</h3>
+        <p class="small muted" style="margin:0 0 10px">Avec une clé API, une IA t'explique tes erreurs, les problèmes et les positions. Les clés sont enregistrées <b>uniquement sur cet appareil</b> et ne servent qu'à appeler directement le fournisseur choisi. Les API sont facturées à part des abonnements (ChatGPT Plus, Claude Pro…) : crée une clé dédiée avec un plafond de dépenses.</p>
+        ${tg ? `<div class="card" style="box-shadow:none;margin-bottom:10px"><div class="row between"><span class="small">Tes réglages d'IA de <b>Tengen</b> sont disponibles ici.</span><button class="btn sm primary" id="ai-tg">Reprendre</button></div></div>` : ''}
+        <b class="small">Fournisseur</b>
+        <div class="prov-list">${PROVIDERS.map(p => `<button class="prov ${ai.provider === p.id ? 'on' : ''}" data-p="${p.id}"><span><b>${p.name}</b><small>${p.brand} · ${esc(p.note)}</small></span>${ai.provider === p.id ? '<span class="badge">Choisi</span>' : ai.keys[p.id] ? '<span class="badge good">Clé enregistrée</span>' : ''}</button>`).join('')}</div>
+        ${pv.id === 'custom' ? `<label class="field" style="margin-top:10px">Adresse du service (https)<input id="ai-base" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://mon-service.example/v1" value="${esc(base)}"></label>` : ''}
+        <label class="field" style="margin-top:10px">Clé API ${pv.name}${pv.console ? ` <span class="muted">· à créer sur ${pv.console}</span>` : ''}
+          <span class="row" style="flex-wrap:nowrap;margin-top:5px"><input id="ai-key" type="${show ? 'text' : 'password'}" autocomplete="off" spellcheck="false" placeholder="${pv.keyHint}" value="${esc(key)}" style="margin:0"><button class="btn sm" id="ai-show" type="button">${show ? 'Masquer' : 'Voir'}</button></span></label>
+        <div id="ai-guess"></div>
+        <div style="margin-top:10px"><b class="small">Modèle</b>
+          ${pv.suggested.length ? `<div class="chips" style="margin-top:6px">${pv.suggested.map(x => `<button class="chip ${model === x.id ? 'on' : ''}" data-m="${esc(x.id)}">${esc(x.label)}</button>`).join('')}</div>` : ''}
+          <input id="ai-model" class="ai-input" autocomplete="off" spellcheck="false" placeholder="nom exact du modèle" value="${esc(model)}">
+          <button class="btn sm" id="ai-list" style="margin-top:6px" ${!key.trim() && pv.id !== 'openrouter' && pv.id !== 'custom' ? 'disabled' : ''}>Voir les modèles disponibles</button>
+          ${models ? `${models.length > 12 ? `<input id="ai-filter" class="ai-input" type="search" placeholder="Filtrer (ex. mistral, gpt, gemini, haiku…)" value="${esc(filter)}">` : ''}
+            <div class="list" style="max-height:240px;overflow:auto;margin-top:6px">${shown.map(x => `<div class="list-item" data-pick="${esc(x)}"><span class="grow t" style="word-break:break-all;white-space:normal">${esc(x)}</span>${model === x ? '<span class="badge">Choisi</span>' : ''}</div>`).join('')}</div>` : ''}
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" id="ai-save">Enregistrer</button>
+          <button class="btn" id="ai-test">Tester</button>
+          ${ai.keys[ai.provider] ? '<button class="btn danger" id="ai-del">Supprimer la clé</button>' : ''}
+          <button class="btn ghost" data-close>Fermer</button>
+        </div>
+        ${msg ? `<div class="fb ${msg.ok ? 'info' : 'ko'}" style="margin-top:10px">${esc(msg.text)}</div>` : ''}`;
+      root.querySelectorAll('[data-p]').forEach(b => b.onclick = () => choose(b.dataset.p));
+      root.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { model = b.dataset.m; render(); });
+      root.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { model = b.dataset.pick; render(); });
+      root.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { close(); onDone?.(); });
+      const ki = $('#ai-key', root);
+      const updateGuess = () => {
+        const g = guessProvider(key), box = $('#ai-guess', root);
+        box.innerHTML = g && g !== pv.id && pv.id !== 'custom' ? `<div class="fb ko small" style="margin-top:6px">Cette clé ressemble à une clé <b>${providerById(g).name}</b>, pas ${pv.name}. <button class="btn sm" id="ai-switch">Passer à ${providerById(g).name}</button></div>` : '';
+        const sw = $('#ai-switch', root); if (sw) sw.onclick = () => { const k = key; choose(g); key = k; render(); };
+        $('#ai-list', root).disabled = !key.trim() && pv.id !== 'openrouter' && pv.id !== 'custom';
+      };
+      ki.oninput = () => { key = ki.value; updateGuess(); };
+      $('#ai-model', root).oninput = e => { model = e.target.value; };
+      const bi = $('#ai-base', root); if (bi) bi.oninput = () => { base = bi.value; };
+      const fi = $('#ai-filter', root); if (fi) fi.oninput = () => { filter = fi.value; const pos = fi.selectionStart; render(); const f2 = $('#ai-filter', root); f2.focus(); f2.setSelectionRange(pos, pos); };
+      $('#ai-show', root).onclick = () => { show = !show; render(); };
+      const tgb = $('#ai-tg', root); if (tgb) tgb.onclick = () => { ai = { ...ai, provider: tg.provider, keys: { ...ai.keys, ...Object.fromEntries(Object.entries(tg.keys).filter(([, v]) => v)) }, models: { ...ai.models, ...tg.models }, customBase: tg.customBase || ai.customBase }; key = ai.keys[ai.provider] || ''; model = ai.models[ai.provider] || providerById(ai.provider).defaultModel; base = ai.customBase || ''; saveAiSettings(ai); msg = { ok: true, text: 'Réglages de Tengen repris. Touche « Tester » pour vérifier.' }; render(); };
+      updateGuess();
+      $('#ai-list', root).onclick = async () => {
+        msg = { ok: true, text: 'Chargement des modèles…' }; render();
+        try { models = await listModels(ai.provider, cleanKey(key), base); msg = { ok: true, text: `${models.length} modèles disponibles. Choisis-en un.` }; }
+        catch (e) { msg = { ok: false, text: e.message }; }
+        render();
+      };
+      $('#ai-save', root).onclick = () => { save(); toast('Professeur IA enregistré sur l\'appareil.'); close(); onDone?.(); };
+      $('#ai-test', root).onclick = async () => {
+        save(); msg = { ok: true, text: 'Test en cours…' }; render();
+        try { const t = await testAI(); msg = { ok: true, text: `${providerById(ai.provider).name} répond : ${t}` }; }
+        catch (e) { msg = { ok: false, text: e.message }; }
+        render();
+      };
+      const del = $('#ai-del', root); if (del) del.onclick = () => { key = ''; ai = { ...ai, keys: { ...ai.keys, [ai.provider]: '' } }; saveAiSettings(ai); msg = { ok: true, text: 'Clé supprimée.' }; render(); };
+    };
+    render();
+  } });
 }
 
 function applyTheme() {

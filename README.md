@@ -10,7 +10,7 @@ Application web installable (PWA) pour progresser aux échecs : problèmes adapt
   - *Classée* : aucune aide, la partie compte pour ton **Elo Caïssa** (départ 1000, modifiable dans les réglages).
 - **Bilan de partie** : chaque coup classé par Stockfish 19 (brillant, très fort, meilleur, excellent, bon, théorie, imprécision, erreur, occasion manquée, gaffe), nom de l'ouverture, précision globale et par phase, **Elo estimé sur la partie**, courbe d'évaluation, commentaire de chaque coup, exploration libre. Import de tes parties Lichess, Chess.com ou PGN collé.
 - **Carnet d'erreurs** : tes erreurs deviennent des exercices, révisés à intervalles croissants (1, 3, 7, 16, 35 jours), avec des statistiques sur ce qui te coûte le plus de points.
-- **Explications par Claude** (optionnel) : bouton « Expliquer » sur les problèmes, les coups et les positions. Ta clé API se saisit dans les réglages ⚙︎ et reste sur l'appareil.
+- **Professeur IA** (optionnel, comme dans Tengen) : Claude, ChatGPT, Gemini, Grok, OpenRouter ou service compatible OpenAI, avec ta propre clé et le modèle de ton choix (liste des modèles disponibles). Bouton « Expliquer » sur les problèmes, les coups et les positions. Les clés restent sur l'appareil.
 
 ## Noms des cases
 
