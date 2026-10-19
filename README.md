@@ -5,12 +5,16 @@ Application web installable (PWA) pour progresser aux échecs : problèmes adapt
 ## Ce que fait l'appli
 
 - **Problèmes** : réserve hors ligne générée avec Stockfish, complétée automatiquement par les problèmes de Lichess dès que tu es connecté (thèmes : pièce en prise, fourchette, clouage, mat en 1/2…). Ton niveau problèmes s'ajuste à chaque essai (départ à 1000).
-- **Jouer** : 8 niveaux d'adversaire (≈ 600 à 2000+), qui choisit parmi plusieurs coups plausibles et peut se tromper. Pendule (15 + 10, 10 min, 5 + 3), reprise de coup, et deux garde-fous :
-  - *Routine* : une fiche Échecs · Prises · Menaces avant chaque coup ;
-  - *Filet anti-gaffe* : Stockfish vérifie ton coup en silence et te prévient s'il perd gros, sans donner la solution.
-- **Analyse** : chaque coup passé au crible par Stockfish 19, précision, imprécisions/erreurs/gaffes, courbe d'évaluation, meilleure suite, exploration libre. Import de tes parties Lichess, Chess.com ou PGN collé.
+- **Jouer** : 11 personnages avec leur Elo et leur style (Léon 250, Margaux 450, Bastien 650, Inès 850, Victor 1000, Chloé 1200, Hugo 1400, Solène 1600, Le Professeur 1800, La Sentinelle 2200, Caïssa sans limite 3000) et une Caïssa réglable de 250 à 2200. Pendule (15 + 10, 10 min, 5 + 3) et deux modes :
+  - *Entraînement* : annuler son coup, indice, menace adverse, routine Échecs · Prises · Menaces, filet anti-gaffe ;
+  - *Classée* : aucune aide, la partie compte pour ton **Elo Caïssa** (départ 1000, modifiable dans les réglages).
+- **Bilan de partie** : chaque coup classé par Stockfish 19 (brillant, très fort, meilleur, excellent, bon, théorie, imprécision, erreur, occasion manquée, gaffe), nom de l'ouverture, précision globale et par phase, **Elo estimé sur la partie**, courbe d'évaluation, commentaire de chaque coup, exploration libre. Import de tes parties Lichess, Chess.com ou PGN collé.
 - **Carnet d'erreurs** : tes erreurs deviennent des exercices, révisés à intervalles croissants (1, 3, 7, 16, 35 jours), avec des statistiques sur ce qui te coûte le plus de points.
 - **Explications par Claude** (optionnel) : bouton « Expliquer » sur les problèmes, les coups et les positions. Ta clé API se saisit dans les réglages ⚙︎ et reste sur l'appareil.
+
+## Noms des cases
+
+Réglages ⚙︎ → *Noms des cases* : sur les bords, sur chaque case, ou masqués.
 
 ## Mise en ligne sur GitHub Pages
 

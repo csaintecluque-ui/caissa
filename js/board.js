@@ -1,5 +1,6 @@
 // Échiquier tactile maison : sélection au toucher, glisser-déposer, promotion,
 // animations, flèches et surbrillances. Aucune dépendance.
+import { settings } from './store.js';
 const FILES = 'abcdefgh';
 const TYPES = { p: 'p', n: 'n', b: 'b', r: 'r', q: 'q', k: 'k' };
 
@@ -25,7 +26,8 @@ export class Board {
     this.onMove = opts.onMove || (() => false);
     this.destsFn = opts.dests || (() => []);
     this.movable = opts.movable ?? null; // 'w' | 'b' | 'both' | null
-    this.coords = opts.coords !== false;
+    // 'bords' | 'toutes' | 'aucune' — par défaut le réglage de l'appli
+    this.coords = opts.coords || settings.get().squareNames || 'bords';
     this.pieces = {}; // square -> code
     this.els = new Map(); // element -> {code, sq}
     this.selected = null;
@@ -85,16 +87,25 @@ export class Board {
   }
 
   renderCoords() {
-    if (!this.coords) { this.coordsEl.innerHTML = ''; return; }
+    if (this.coords === 'aucune') { this.coordsEl.innerHTML = ''; return; }
     let h = '';
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 8 && this.coords !== 'toutes'; i++) {
       const file = this.orientation === 'w' ? FILES[i] : FILES[7 - i];
       const rank = this.orientation === 'w' ? 8 - i : i + 1;
-      h += `<span class="cf ${i % 2 ? 'on-dark' : 'on-light'}" style="left:${i * 12.5}%">${file}</span>`;
-      h += `<span class="cr ${i % 2 ? 'on-light' : 'on-dark'}" style="top:${i * 12.5}%">${rank}</span>`;
+      // la case en bas à gauche est toujours foncée (a1 ou h8)
+      h += `<span class="cf ${i % 2 ? 'on-light' : 'on-dark'}" style="left:${i * 12.5}%">${file}</span>`;
+      h += `<span class="cr ${i % 2 ? 'on-dark' : 'on-light'}" style="top:${i * 12.5}%">${rank}</span>`;
+    }
+    if (this.coords === 'toutes') {
+      for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) {
+        const f = this.orientation === 'w' ? FILES[x] : FILES[7 - x];
+        const r = this.orientation === 'w' ? 8 - y : y + 1;
+        h += `<span class="cn ${(x + y) % 2 ? 'on-dark' : 'on-light'}" style="left:${x * 12.5}%;top:${y * 12.5}%">${f}${r}</span>`;
+      }
     }
     this.coordsEl.innerHTML = h;
   }
+  setCoords(mode) { this.coords = mode; this.renderCoords(); }
 
   // --- état ---------------------------------------------------------------
   setOrientation(c) {

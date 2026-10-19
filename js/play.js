@@ -1,20 +1,13 @@
-// Parties contre Stockfish « humanisé », pendule, routine anti-gaffe et filet.
+// Parties contre les personnages de Caïssa : mode entraînement (aides) ou classé (Elo),
+// pendule, navigation dans les coups, indice, menaces, annulation, filet anti-gaffe.
 import { Board } from './board.js';
-import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, modal, confirmDialog, fmtClock, sanFr, materialBalance } from './util.js';
+import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, modal, confirmDialog, fmtClock, sanFr, materialBalance, pvToSan } from './util.js';
 import { store, settings } from './store.js';
 import { engine, lineValue, lineWin } from './engine.js';
 import { gameFromChess, saveGame } from './games.js';
+import { BOTS, botById, avatar, chooseMove, pick, paramsForElo } from './bots.js';
+import { playerRating, applyResult, stakes } from './rating.js';
 
-export const LEVELS = [
-  { name: 'Débutant', elo: '≈ 600', depth: 3, mpv: 8, T: 260 },
-  { name: 'Novice', elo: '≈ 800', depth: 4, mpv: 7, T: 170 },
-  { name: 'Club débutant', elo: '≈ 1000', depth: 5, mpv: 6, T: 115 },
-  { name: 'Club', elo: '≈ 1200', depth: 6, mpv: 5, T: 80 },
-  { name: 'Club confirmé', elo: '≈ 1400', depth: 8, mpv: 4, T: 52 },
-  { name: 'Fort', elo: '≈ 1600', depth: 10, mpv: 4, T: 32 },
-  { name: 'Expert', elo: '≈ 1800', depth: 12, mpv: 3, T: 18 },
-  { name: 'Maître', elo: '2000 +', depth: 15, mpv: 1, T: 0 },
-];
 const CADENCES = [
   { id: 'none', label: 'Sans pendule', base: 0, inc: 0 },
   { id: '15+10', label: '15 + 10', base: 15 * 60000, inc: 10000 },
@@ -26,113 +19,188 @@ const GUARDS = [
   { id: 'routine', label: 'Routine' },
   { id: 'filet', label: 'Filet anti-gaffe' },
 ];
+const OLD_LEVEL_ELO = [600, 800, 1000, 1200, 1400, 1600, 1800, 2000];
+const PIECE_FR = { p: 'pion', n: 'cavalier', b: 'fou', r: 'tour', q: 'dame', k: 'roi' };
+const COLOR_FR = { w: 'Blancs', b: 'Noirs' };
 
-function prefs() { return { level: 3, color: 'w', cadence: '15+10', guard: 'filet', takeback: true, ...store.get('playPrefs', {}) }; }
+function prefs() {
+  return { botId: 'victor', customElo: 1000, color: 'w', cadence: '15+10', mode: 'entrainement', guard: 'filet', ...store.get('playPrefs', {}) };
+}
+function migrate(g) {
+  if (g.prefs && g.prefs.level && !g.prefs.botId) {
+    g.prefs.botId = 'custom';
+    g.prefs.customElo = OLD_LEVEL_ELO[g.prefs.level - 1] || 1000;
+    g.prefs.mode = 'entrainement';
+  }
+  return g;
+}
+function botOf(p) { return botById(p.botId, p.customElo); }
 
-let S = null; // état de la partie en cours
+let S = null;
 
 export function mount(root, params = {}) {
   const saved = store.get('currentGame');
-  if (saved && !params.new) startGame(root, saved);
+  if (saved && !params.new) startGame(root, migrate(saved));
   else renderSetup(root);
 }
 export function unmount() {
-  if (S) { clearInterval(S.timer); persist(); engine.cancelAll(); }
+  if (S) { clearInterval(S.timer); persist(); engine.cancelAll(); if (S.keyHandler) document.removeEventListener('keydown', S.keyHandler); }
   S = null;
 }
 
-// --- écran de réglage -------------------------------------------------------------
+// --- réglage de la partie -----------------------------------------------------------
 function renderSetup(root) {
   const p = prefs();
+  const me = playerRating();
+  const botStats = store.get('botStats', {});
+  const rec = id => { const s = botStats[id]; return s ? `${s.w}V · ${s.d}N · ${s.l}D` : ''; };
   root.innerHTML = `
-  <div class="stack" style="max-width:560px;margin:0 auto">
-    <div>
-      <h2>Nouvelle partie</h2>
-      <p class="muted">Un adversaire qui joue « humain » : il choisit parmi plusieurs coups plausibles et peut se tromper, comme un joueur de ton niveau.</p>
+  <div class="stack" style="max-width:720px;margin:0 auto">
+    <div class="row between" style="align-items:flex-end">
+      <div><h2>Nouvelle partie</h2><p class="muted" style="margin:4px 0 0">Choisis ton adversaire. Les Elo sont indicatifs.</p></div>
+      <div class="elo-chip"><span>Ton Elo</span><b>${me.elo}</b>${me.games < 10 ? '<em>provisoire</em>' : ''}</div>
     </div>
-    <div class="card stack">
-      <div>
-        <div class="row between"><b>Adversaire</b><span class="badge" id="lv-label"></span></div>
-        <input type="range" min="1" max="${LEVELS.length}" step="1" value="${p.level}" id="lv" style="margin-top:10px">
-        <p class="muted small" style="margin:4px 0 0">Les Elo sont indicatifs. Commence vers ton niveau et monte quand tu gagnes 2 parties sur 3.</p>
-      </div>
+    <div class="bots" id="bots">
+      ${BOTS.map(b => `<button class="bot ${p.botId === b.id ? 'on' : ''}" data-id="${b.id}">
+        ${avatar(b, 42)}<span class="bot-t"><b>${esc(b.name)}</b><span class="bot-elo">${b.elo}</span></span>
+        <span class="bot-bio">${esc(b.bio)}</span>${rec(b.id) ? `<span class="bot-rec">${rec(b.id)}</span>` : ''}</button>`).join('')}
+      <button class="bot ${p.botId === 'custom' ? 'on' : ''}" data-id="custom">
+        ${avatar(botById('custom'), 42)}<span class="bot-t"><b>Caïssa réglable</b><span class="bot-elo" id="cus-elo">${p.customElo}</span></span>
+        <span class="bot-bio">Choisis exactement son niveau, de 250 à 2200.</span>${rec('custom') ? `<span class="bot-rec">${rec('custom')}</span>` : ''}</button>
+    </div>
+    <div class="card ${p.botId === 'custom' ? '' : 'hidden'}" id="cus-box">
+      <div class="row between"><b>Niveau de Caïssa réglable</b><span class="badge" id="cus-lab">${p.customElo}</span></div>
+      <input type="range" min="250" max="2200" step="50" value="${p.customElo}" id="cus" style="margin-top:10px">
+    </div>
+    <div class="card stack setup">
       <div><b>Tu joues</b><div class="seg" id="col" style="margin-top:8px">
-        ${[['w', 'Blancs'], ['r', 'Au hasard'], ['b', 'Noirs']].map(([v, l]) => `<button data-v="${v}" class="${p.color === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        ${[['w', 'Blancs (tu commences)'], ['r', 'Au hasard'], ['b', 'Noirs']].map(([v, l]) => `<button data-v="${v}" class="${p.color === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div><b>Cadence</b><div class="seg" id="cad" style="margin-top:8px">
-        ${CADENCES.map(c => `<button data-v="${c.id}" class="${p.cadence === c.id ? 'on' : ''}">${c.label}</button>`).join('')}</div>
-        <p class="muted small" style="margin:6px 0 0">Avec la pendule, tu t'habitues à la pression du temps, comme face à un humain.</p></div>
-      <div><b>Garde-fou</b><div class="seg" id="grd" style="margin-top:8px">
+        ${CADENCES.map(c => `<button data-v="${c.id}" class="${p.cadence === c.id ? 'on' : ''}">${c.label}</button>`).join('')}</div></div>
+      <div><b>Mode</b><div class="seg" id="mode" style="margin-top:8px">
+        <button data-v="entrainement" class="${p.mode === 'entrainement' ? 'on' : ''}">Entraînement</button>
+        <button data-v="classee" class="${p.mode === 'classee' ? 'on' : ''}">Classée</button></div>
+        <p class="muted small" id="mode-help" style="margin:6px 0 0"></p></div>
+      <div id="guard-box"><b>Garde-fou</b><div class="seg" id="grd" style="margin-top:8px">
         ${GUARDS.map(g => `<button data-v="${g.id}" class="${p.guard === g.id ? 'on' : ''}">${g.label}</button>`).join('')}</div>
         <p class="muted small" id="grd-help" style="margin:6px 0 0"></p></div>
-      <label class="switch"><span>Autoriser la reprise de coup</span><input type="checkbox" id="tb" ${p.takeback ? 'checked' : ''}></label>
-      <button class="btn primary block" id="go">Commencer la partie</button>
+      <button class="btn primary block" id="go"></button>
     </div>
   </div>`;
-  const lv = $('#lv', root);
-  const upd = () => { const L = LEVELS[lv.value - 1]; $('#lv-label', root).textContent = `${lv.value} · ${L.name} (${L.elo})`; };
-  lv.oninput = upd; upd();
+  const sel = { botId: p.botId, customElo: p.customElo };
   const helps = {
-    none: 'Aucune aide : conditions réelles.',
-    routine: 'Avant chaque coup, une fiche te rappelle de vérifier échecs, prises et menaces. Idéal pour installer le réflexe.',
-    filet: 'Stockfish vérifie ton coup en silence : s\'il perd gros, l\'appli te prévient sans te donner la solution. Tu peux jouer quand même.',
+    none: 'Aucune alerte : conditions réelles.',
+    routine: 'Avant chaque coup, une fiche te rappelle de vérifier échecs, prises et menaces.',
+    filet: 'Stockfish vérifie ton coup en silence : s\'il perd gros, l\'appli te prévient sans te donner la solution.',
   };
-  const seg = (id, key) => $(id, root).addEventListener('click', e => {
+  const update = () => {
+    const mode = $('#mode .on', root).dataset.v;
+    const bot = botById(sel.botId, sel.customElo);
+    $('#guard-box', root).classList.toggle('hidden', mode === 'classee');
+    if (mode === 'classee') {
+      const st = stakes(bot.elo);
+      $('#mode-help', root).innerHTML = `Aucune aide. La partie compte pour ton Elo : <b class="good-t">+${st.win}</b> si tu gagnes, <b>${st.draw >= 0 ? '+' : ''}${st.draw}</b> en cas de nulle, <b class="bad-t">−${Math.abs(st.loss)}</b> si tu perds.`;
+    } else {
+      $('#mode-help', root).textContent = 'Tu peux annuler un coup, demander un indice ou voir les menaces adverses. Ton Elo ne bouge pas, mais le bilan estime quand même ton niveau sur la partie.';
+    }
+    $('#grd-help', root).textContent = helps[$('#grd .on', root).dataset.v];
+    $('#go', root).textContent = `Jouer contre ${bot.custom ? 'Caïssa' : bot.name} (${bot.elo})`;
+  };
+  $('#bots', root).addEventListener('click', e => {
+    const b = e.target.closest('.bot'); if (!b) return;
+    sel.botId = b.dataset.id;
+    root.querySelectorAll('.bot').forEach(x => x.classList.toggle('on', x === b));
+    $('#cus-box', root).classList.toggle('hidden', sel.botId !== 'custom');
+    update();
+  });
+  const cus = $('#cus', root);
+  cus.oninput = () => { sel.customElo = +cus.value; $('#cus-lab', root).textContent = cus.value; $('#cus-elo', root).textContent = cus.value; update(); };
+  for (const id of ['#col', '#cad', '#mode', '#grd']) $(id, root).addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     $(id, root).querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-    if (key === 'guard') $('#grd-help', root).textContent = helps[b.dataset.v];
+    update();
   });
-  seg('#col'); seg('#cad'); seg('#grd', 'guard');
-  $('#grd-help', root).textContent = helps[p.guard];
+  update();
   $('#go', root).onclick = () => {
     const np = {
-      level: +lv.value,
-      color: $('#col .on', root).dataset.v,
-      cadence: $('#cad .on', root).dataset.v,
-      guard: $('#grd .on', root).dataset.v,
-      takeback: $('#tb', root).checked,
+      botId: sel.botId, customElo: sel.customElo,
+      color: $('#col .on', root).dataset.v, cadence: $('#cad .on', root).dataset.v,
+      mode: $('#mode .on', root).dataset.v, guard: $('#grd .on', root).dataset.v,
     };
     store.set('playPrefs', np);
     const you = np.color === 'r' ? (Math.random() < .5 ? 'w' : 'b') : np.color;
     const cad = CADENCES.find(c => c.id === np.cadence);
-    startGame(root, { prefs: np, you, startFen: new Chess().fen(), moves: [], clocks: cad.base ? { w: cad.base, b: cad.base } : null, created: Date.now(), netUsed: 0 });
+    const bot = botOf(np);
+    startGame(root, { prefs: np, you, startFen: new Chess().fen(), moves: [], clocks: cad.base ? { w: cad.base, b: cad.base } : null,
+      created: Date.now(), netUsed: 0, takebacks: 0, hints: 0, threats: 0, youElo: playerRating().elo, hello: pick(bot.hello) });
   };
 }
 
-// --- partie ----------------------------------------------------------------------
+// --- partie --------------------------------------------------------------------------
 function startGame(root, g) {
-  const L = LEVELS[g.prefs.level - 1];
+  const bot = botOf(g.prefs);
   const cad = CADENCES.find(c => c.id === g.prefs.cadence) || CADENCES[0];
+  const rated = g.prefs.mode === 'classee';
   const s = settings.get();
+  const botSide = g.you === 'w' ? 'b' : 'w';
   root.innerHTML = `
   <div class="split">
     <div class="board-col">
-      <div class="player" id="pl-top"><span class="dotc ${g.you === 'w' ? 'b' : 'w'}"></span><span class="name"><span>Caïssa · ${esc(L.name)} (${L.elo})</span><span class="captured" id="mat-top"></span></span><span class="clock ${cad.base ? '' : 'hidden'}" id="clk-top"></span></div>
+      <div class="player" id="pl-top">${avatar(bot, 30)}<span class="name"><span>${esc(bot.custom ? 'Caïssa' : bot.name)} <span class="muted">(${bot.elo})</span> · ${COLOR_FR[botSide]}</span><span class="captured" id="mat-top"></span></span><span class="clock ${cad.base ? '' : 'hidden'}" id="clk-top"></span></div>
       <div class="board-area"><div class="board-wrap"><div id="pl-board"></div></div></div>
-      <div class="player" id="pl-bot"><span class="dotc ${g.you}"></span><span class="name"><span>${esc(s.playerName || 'Moi')}</span><span class="captured" id="mat-bot"></span></span><span class="clock ${cad.base ? '' : 'hidden'}" id="clk-bot"></span></div>
+      <div class="player" id="pl-bot"><span class="dotc ${g.you}"></span><span class="name"><span>${esc(s.playerName || 'Moi')} <span class="muted">(${g.youElo || playerRating().elo})</span> · ${COLOR_FR[g.you]}</span><span class="captured" id="mat-bot"></span></span><span class="clock ${cad.base ? '' : 'hidden'}" id="clk-bot"></span></div>
+      <div class="toolbar" id="pl-nav">
+        <button class="btn sm" data-n="first" aria-label="Début">⏮</button><button class="btn sm" data-n="prev" aria-label="Coup précédent">◀</button>
+        <button class="btn sm" data-n="next" aria-label="Coup suivant">▶</button><button class="btn sm" data-n="last" aria-label="Position actuelle">⏭</button>
+        ${rated ? '' : `<button class="btn sm" id="pl-undo">↶ Annuler mon coup</button>`}
+      </div>
+      ${rated ? '' : `<div class="toolbar"><button class="btn sm" id="pl-hint">Indice</button><button class="btn sm" id="pl-threat">Menace adverse</button></div>`}
     </div>
     <div class="side stack">
       <div class="card">
+        <div class="row between" style="margin-bottom:6px"><span class="badge ${rated ? 'bad' : ''}">${rated ? 'Partie classée' : 'Entraînement'}</span><span class="muted small">${cad.label}${!rated && g.prefs.guard !== 'none' ? ' · ' + GUARDS.find(x => x.id === g.prefs.guard).label : ''}</span></div>
         <div class="status" id="pl-status">…</div>
-        <p class="muted small" id="pl-sub" style="margin:6px 0 0"></p>
+        <p class="small" id="pl-sub" style="margin:6px 0 0"></p>
+        <div class="bubble-row">${avatar(bot, 24)}<span class="bubble" id="pl-say">${esc(g.hello || pick(bot.hello))}</span></div>
         <div class="toolbar" style="margin-top:12px;justify-content:flex-start">
-          <button class="btn sm" id="pl-undo" ${g.prefs.takeback ? '' : 'hidden'}>Reprendre</button>
           <button class="btn sm" id="pl-flip">Retourner</button>
-          <button class="btn sm" id="pl-draw">Nulle ?</button>
+          <button class="btn sm" id="pl-draw">Proposer nulle</button>
           <button class="btn sm danger" id="pl-resign">Abandonner</button>
         </div>
       </div>
-      <div class="card"><div class="row between" style="margin-bottom:6px"><h3>Coups</h3><span class="muted small">${cad.label}${g.prefs.guard !== 'none' ? ' · ' + GUARDS.find(x => x.id === g.prefs.guard).label : ''}</span></div><div class="moves" id="pl-moves"></div></div>
+      <div class="card"><div class="row between" style="margin-bottom:6px"><h3>Coups</h3><span class="muted small" id="pl-view"></span></div><div class="moves" id="pl-moves"></div></div>
     </div>
   </div>`;
   const chess = new Chess(g.startFen);
   for (const u of g.moves) uciToMove(chess, u);
-  const board = new Board($('#pl-board', root), { orientation: g.you, coords: s.coords, onMove: (f, t, p) => userMove(f, t, p) });
-  S = { root, g, chess, board, L, cad, over: false, thinking: false, pending: false, timer: null, turnStart: performance.now() };
+  const board = new Board($('#pl-board', root), { orientation: g.you, onMove: (f, t, p) => userMove(f, t, p) });
+  S = { root, g, chess, bot, cad, rated, over: false, thinking: false, pending: false, timer: null, turnStart: performance.now(), view: null, info: '' };
+  S.board = board;
   sync(false);
   $('#pl-flip', root).onclick = () => board.flip();
-  $('#pl-resign', root).onclick = async () => { if (S.over) return; if (await confirmDialog('Abandonner ?', 'La partie sera enregistrée comme perdue. Tu pourras l\'analyser.', 'Abandonner')) endGame(S.g.you === 'w' ? '0-1' : '1-0', 'Abandon'); };
+  $('#pl-resign', root).onclick = async () => {
+    if (S.over) return;
+    if (await confirmDialog('Abandonner ?', `La partie sera enregistrée comme perdue${S.rated ? ' et comptera pour ton Elo' : ''}. Tu pourras l'analyser.`, 'Abandonner')) endGame(S.g.you === 'w' ? '0-1' : '1-0', 'Abandon');
+  };
   $('#pl-draw', root).onclick = offerDraw;
-  $('#pl-undo', root).onclick = takeback;
+  $('#pl-undo', root)?.addEventListener('click', takeback);
+  $('#pl-hint', root)?.addEventListener('click', hint);
+  $('#pl-threat', root)?.addEventListener('click', threat);
+  $('#pl-nav', root).addEventListener('click', e => {
+    const b = e.target.closest('[data-n]'); if (!b) return;
+    const n = S.chess.history().length;
+    const cur = S.view ?? n;
+    const to = b.dataset.n === 'first' ? 0 : b.dataset.n === 'prev' ? Math.max(0, cur - 1) : b.dataset.n === 'next' ? Math.min(n, cur + 1) : n;
+    browse(to);
+  });
+  $('#pl-moves', root).addEventListener('click', e => { const m = e.target.closest('[data-p]'); if (m) browse(+m.dataset.p); });
+  S.keyHandler = e => {
+    if (!S || e.target.closest('input,textarea')) return;
+    const n = S.chess.history().length, cur = S.view ?? n;
+    if (e.key === 'ArrowLeft') browse(Math.max(0, cur - 1));
+    if (e.key === 'ArrowRight') browse(Math.min(n, cur + 1));
+  };
+  document.addEventListener('keydown', S.keyHandler);
   S.timer = setInterval(tick, 100);
   if (chess.isGameOver()) { store.del('currentGame'); renderSetup(root); return; }
   if (chess.turn() !== g.you) botMove();
@@ -141,58 +209,89 @@ function startGame(root, g) {
 function persist() {
   if (!S || S.over) return;
   const g = S.g;
-  if (g.clocks && !S.over) {
+  if (g.clocks) {
     const c = { ...g.clocks };
     c[S.chess.turn()] -= performance.now() - S.turnStart;
     store.set('currentGame', { ...g, clocks: c });
   } else store.set('currentGame', g);
 }
 
+// Affiche une position passée (lecture seule) ; null = position actuelle
+function browse(ply) {
+  if (!S) return;
+  const n = S.chess.history().length;
+  S.view = ply >= n ? null : ply;
+  S.board.setArrows([]);
+  sync();
+}
+
 function sync(animate = true) {
   const { chess, board, g } = S;
   const hist = chess.history({ verbose: true });
-  const last = hist[hist.length - 1];
-  board.setPosition(chess.fen(), { lastMove: last ? [last.from, last.to] : null, check: checkSquare(chess), animate });
+  const n = hist.length;
+  const ply = S.view ?? n;
+  let fen, last = null, inCheck = null;
+  if (S.view == null) { fen = chess.fen(); const l = hist[n - 1]; if (l) last = [l.from, l.to]; inCheck = checkSquare(chess); }
+  else {
+    const c = new Chess(g.startFen);
+    for (let i = 0; i < ply; i++) c.move(hist[i].san);
+    fen = c.fen(); const l = hist[ply - 1]; if (l) last = [l.from, l.to]; inCheck = checkSquare(c);
+  }
+  board.setPosition(fen, { lastMove: last, check: inCheck, animate });
   board.setDests(destsFor(chess));
-  board.setMovable(!S.over && chess.turn() === g.you && !S.thinking ? g.you : null);
-  // matériel
+  board.setMovable(!S.over && S.view == null && chess.turn() === g.you && !S.thinking ? g.you : null);
   const bal = materialBalance(chess) * (g.you === 'w' ? 1 : -1);
   $('#mat-bot', S.root).textContent = bal > 0 ? `+${bal}` : '';
   $('#mat-top', S.root).textContent = bal < 0 ? `+${-bal}` : '';
-  // liste des coups
   const el = $('#pl-moves', S.root);
   let h = '';
   hist.forEach((m, i) => {
     if (m.color === 'w') h += `<span class="n">${Math.floor(i / 2) + 1}.</span>`;
     else if (i === 0) h += `<span class="n">1.</span><span class="mv">…</span>`;
-    h += `<span class="mv ${i === hist.length - 1 ? 'on' : ''}">${sanFr(m.san)}</span>`;
+    h += `<span class="mv ${i === ply - 1 ? 'on' : ''}" data-p="${i + 1}">${sanFr(m.san)}</span>`;
   });
   el.innerHTML = h || '<span class="muted small" style="grid-column:1/-1">La partie commence.</span>';
-  el.scrollTop = el.scrollHeight;
+  if (S.view == null) el.scrollTop = el.scrollHeight;
+  $('#pl-view', S.root).innerHTML = S.view != null ? `<button class="btn sm" id="pl-back">Revenir à la partie</button>` : '';
+  $('#pl-back', S.root)?.addEventListener('click', () => browse(n));
   status();
   renderClocks();
 }
 
-function status(extra) {
-  const { chess, g } = S;
-  let t, sub = extra || '';
-  if (S.over) t = S.overText;
-  else if (S.thinking) t = 'Caïssa réfléchit…';
-  else if (chess.turn() === g.you) {
-    t = chess.inCheck() ? 'Échec ! À toi de jouer.' : 'À toi de jouer.';
-    if (!sub && g.prefs.guard === 'routine') sub = 'Échecs · Prises · Menaces — puis joue.';
-  } else t = '…';
-  $('#pl-status', S.root).textContent = t;
-  $('#pl-sub', S.root).textContent = sub;
+function moveLabel(m, idx) {
+  const num = Math.floor(idx / 2) + 1;
+  return `${num}${m.color === 'w' ? '.' : '…'} ${sanFr(m.san)}`;
 }
 
-// --- pendule ------------------------------------------------------------------------
+function status(extra) {
+  if (!S) return;
+  const { chess, g, bot } = S;
+  const hist = chess.history({ verbose: true });
+  const last = hist[hist.length - 1];
+  const who = bot.custom ? 'Caïssa' : bot.name;
+  let t, sub = extra ?? S.info ?? '';
+  if (S.view != null) {
+    t = S.view === 0 ? 'Position de départ' : `Après ${moveLabel(hist[S.view - 1], S.view - 1)}`;
+    sub = 'Tu regardes un coup précédent. Touche ⏭ pour revenir à la partie.';
+  } else if (S.over) t = S.overText;
+  else if (S.thinking) t = `${who} réfléchit…`;
+  else if (chess.turn() === g.you) {
+    const lastTxt = last ? `${who} a joué ${moveLabel(last, hist.length - 1)}` : '';
+    t = chess.inCheck() ? `Échec ! ${lastTxt ? lastTxt + '. ' : ''}` : (lastTxt ? `${lastTxt}. À toi.` : `À toi de commencer (${COLOR_FR[g.you]}).`);
+    if (chess.inCheck()) t += 'Protège ton roi.';
+    if (!sub && last?.captured) sub = `${who} a pris ton ${PIECE_FR[last.captured]} en ${last.to}.`;
+    if (!sub && g.prefs.guard === 'routine' && !S.rated) sub = 'Échecs · Prises · Menaces — puis joue.';
+  } else t = '…';
+  $('#pl-status', S.root).textContent = t;
+  $('#pl-sub', S.root).textContent = sub || '';
+}
+
+// --- pendule ---------------------------------------------------------------------------
 function renderClocks() {
   if (!S?.g.clocks) return;
   const { g, chess } = S;
-  const now = performance.now();
   const cur = { ...g.clocks };
-  if (!S.over && chess.history().length >= (g.startFen === new Chess().fen() ? 0 : 0)) cur[chess.turn()] -= now - S.turnStart;
+  if (!S.over) cur[chess.turn()] -= performance.now() - S.turnStart;
   const you = g.you, bot = you === 'w' ? 'b' : 'w';
   const set = (id, col) => {
     const el = $(id, S.root);
@@ -221,31 +320,30 @@ function insufficientFor(color) {
 function pressClock() {
   const { g, chess } = S;
   if (!g.clocks) return;
-  const mover = chess.turn() === 'w' ? 'b' : 'w'; // appelé après le coup
+  const mover = chess.turn() === 'w' ? 'b' : 'w';
   g.clocks[mover] -= performance.now() - S.turnStart;
   g.clocks[mover] += S.cad.inc;
   S.turnStart = performance.now();
 }
 
-// --- coups du joueur -----------------------------------------------------------------
+// --- coups du joueur ----------------------------------------------------------------------
 async function userMove(from, to, promotion) {
-  if (!S || S.over || S.pending || S.chess.turn() !== S.g.you) return false;
+  if (!S || S.over || S.pending || S.view != null || S.chess.turn() !== S.g.you) return false;
   const test = new Chess(S.chess.fen());
   let m;
   try { m = test.move({ from, to, promotion }); } catch { return false; }
   S.pending = true;
   try {
-    const guard = S.g.prefs.guard;
-    if (guard === 'routine') {
-      const ok = await routineCheck(m);
-      if (!ok) { sync(false); return false; }
-    } else if (guard === 'filet') {
-      const ok = await safetyNet(test, m);
-      if (!ok) { sync(false); return false; }
+    if (!S.rated) {
+      const guard = S.g.prefs.guard;
+      if (guard === 'routine' && !(await routineCheck(m))) { sync(false); return false; }
+      if (guard === 'filet' && !(await safetyNet(test, m))) { sync(false); return false; }
     }
     if (!S || S.over) return false;
     S.chess.move({ from, to, promotion });
     S.g.moves.push(moveToUci(m));
+    S.info = '';
+    S.board.setArrows([]);
     pressClock();
     moveSound(m, S.chess);
     sync();
@@ -260,9 +358,9 @@ function routineCheck(m) {
   return new Promise(resolve => {
     modal(`<h3>Avant de jouer ${esc(sanFr(m.san))}</h3>
       <ul class="checklist">
-        <li><b>1</b><span><b style="font-size:15px;font-family:var(--sans);color:var(--text)">Échecs</b> — l'adversaire peut-il me mettre en échec après ce coup ? Et moi ?</span></li>
-        <li><b>2</b><span><b style="font-size:15px;font-family:var(--sans);color:var(--text)">Prises</b> — quelles pièces peuvent être prises ? La pièce que je bouge est-elle défendue sur sa case ?</span></li>
-        <li><b>3</b><span><b style="font-size:15px;font-family:var(--sans);color:var(--text)">Menaces</b> — que voulait faire l'adversaire avec son dernier coup ? Est-ce que je l'arrête ?</span></li>
+        <li><b>1</b><span><strong>Échecs</strong> — l'adversaire peut-il me mettre en échec après ce coup ? Et moi ?</span></li>
+        <li><b>2</b><span><strong>Prises</strong> — quelles pièces peuvent être prises ? La pièce que je bouge est-elle défendue en ${m.to} ?</span></li>
+        <li><b>3</b><span><strong>Menaces</strong> — que voulait faire l'adversaire avec son dernier coup ? Est-ce que je l'arrête ?</span></li>
       </ul>
       <div class="row end"><button class="btn ghost" data-a="no">Je change</button><button class="btn primary" data-a="yes">C'est vérifié, je joue</button></div>`,
     { dismissable: false, onMount: (el, close) => {
@@ -275,19 +373,19 @@ function routineCheck(m) {
 async function safetyNet(after, m) {
   status('Vérification du coup…');
   const before = S.chess.fen();
-  const [rb, ra] = [await engine.analyse(before, { depth: 10 }), after.isGameOver() ? null : await engine.analyse(after.fen(), { depth: 10 })];
+  const rb = await engine.analyse(before, { depth: 10 });
+  const ra = after.isGameOver() ? null : await engine.analyse(after.fen(), { depth: 10 });
   if (!S) return false;
   if (after.isCheckmate()) return true;
   const wb = lineWin(rb?.lines[0]);
   const wa = ra ? 100 - lineWin(ra.lines[0]) : 50;
-  const drop = wb - wa;
-  if (drop < 18 || wa > 80) { status(); return true; }
+  if (wb - wa < 18 || wa > 80) { status(); return true; }
   S.g.netUsed = (S.g.netUsed || 0) + 1;
   const reply = ra?.lines[0]?.move;
   const mateAgainst = ra?.lines[0]?.mate > 0;
   const play = await confirmDialog('Attention !',
     `<p>${mateAgainst ? 'Après <b>' + esc(sanFr(m.san)) + '</b>, l\'adversaire a un <b>mat forcé</b>.' : 'Le coup <b>' + esc(sanFr(m.san)) + '</b> semble perdre beaucoup (matériel ou position).'}</p>
-     <p class="muted">Refais la routine : quelles pièces adverses attaquent la case d'arrivée ? Que peut prendre l'adversaire ?</p>`,
+     <p class="muted">Refais la routine : quelles pièces adverses attaquent la case ${m.to} ? Que peut prendre l'adversaire ?</p>`,
     'Jouer quand même', 'Réfléchir encore');
   if (!S) return false;
   status();
@@ -295,51 +393,108 @@ async function safetyNet(after, m) {
   return play;
 }
 
-// --- coups de Caïssa ---------------------------------------------------------------
+// --- aides (entraînement) -----------------------------------------------------------------
+async function hint() {
+  if (!S || S.over || S.view != null || S.thinking || S.chess.turn() !== S.g.you) return;
+  const s = S;
+  status('Recherche d\'un indice…');
+  const r = await engine.analyse(s.chess.fen(), { depth: 13 });
+  if (S !== s || !r?.best) return;
+  s.g.hints = (s.g.hints || 0) + 1;
+  const m = new Chess(s.chess.fen()).moves({ verbose: true }).find(x => x.from + x.to + (x.promotion || '') === r.best);
+  s.board.setArrows([{ from: r.best.slice(0, 2), to: r.best.slice(2, 4), kind: 'hint' }]);
+  s.info = m ? `Indice : joue ${m.piece === 'p' ? 'le pion' : 'ton ' + PIECE_FR[m.piece]} de ${m.from} en ${m.to}${sanFr(m.san) !== m.to ? ` (${sanFr(m.san)})` : ''}.` : '';
+  status();
+  persist();
+}
+
+async function threat() {
+  if (!S || S.over || S.view != null || S.thinking || S.chess.turn() !== S.g.you) return;
+  const s = S;
+  if (s.chess.inCheck()) { s.info = 'Tu es en échec : la menace, c\'est sur ton roi !'; status(); return; }
+  const parts = s.chess.fen().split(' ');
+  parts[1] = parts[1] === 'w' ? 'b' : 'w'; parts[3] = '-';
+  let opp;
+  try { opp = new Chess(parts.join(' ')); } catch { return; }
+  status('Je regarde ce que prépare l\'adversaire…');
+  const r = await engine.analyse(opp.fen(), { depth: 12 });
+  if (S !== s || !r?.best) return;
+  s.g.threats = (s.g.threats || 0) + 1;
+  const m = opp.moves({ verbose: true }).find(x => x.from + x.to + (x.promotion || '') === r.best);
+  const l = r.lines[0];
+  // gravité : comparer avec l'évaluation actuelle
+  const cur = await engine.analyse(s.chess.fen(), { depth: 10 });
+  if (S !== s) return;
+  const gain = lineValue(l) + lineValue(cur?.lines[0]); // ce que gagnerait l'adversaire s'il rejouait
+  let txt;
+  if (l.mate != null && l.mate > 0) txt = `Menace de mat ! L'adversaire joue ${sanFr(m.san)} et mate en ${l.mate}.`;
+  else if (m?.captured && gain > 120) txt = `Menace : ${sanFr(m.san)}, qui prend ton ${PIECE_FR[m.captured]} en ${m.to}.`;
+  else if (gain > 150) txt = `Menace : ${sanFr(m.san)} (${PIECE_FR[m.piece]} ${m.from} → ${m.to}). Regarde ce que ce coup attaque.`;
+  else txt = `Pas de menace immédiate. Son meilleur plan serait ${sanFr(m.san)}.`;
+  const real = !txt.startsWith('Pas de menace');
+  s.board.setArrows([{ from: r.best.slice(0, 2), to: r.best.slice(2, 4), kind: real ? 'bad' : 'hint' }]);
+  s.info = txt;
+  status();
+  persist();
+}
+
+async function takeback() {
+  if (!S || S.over) return;
+  engine.cancelAll();
+  const g = S.g;
+  const t0 = g.startFen.split(' ')[1];
+  const moverOf = k => (k % 2 === 0) === (t0 === 'w') ? 'w' : 'b';
+  let k = g.moves.length - 1;
+  while (k >= 0 && moverOf(k) !== g.you) k--;
+  if (k < 0) { toast('Rien à annuler pour l\'instant.'); return; }
+  g.moves = g.moves.slice(0, k);
+  const c = new Chess(g.startFen);
+  for (const u of g.moves) uciToMove(c, u);
+  S.chess = c;
+  S.token = (S.token || 0) + 1;
+  S.thinking = false;
+  S.view = null;
+  S.info = 'Coup annulé. Prends le temps de faire la routine : échecs, prises, menaces.';
+  S.turnStart = performance.now();
+  g.takebacks = (g.takebacks || 0) + 1;
+  S.board.setArrows([]);
+  sync();
+  persist();
+}
+
+// --- coups du personnage ------------------------------------------------------------------
 async function botMove() {
   if (!S || S.over) return;
   const s = S;
+  const token = s.token || 0;
   s.thinking = true;
   sync(false);
   const t0 = performance.now();
   const fen = s.chess.fen();
-  const r = await engine.analyse(fen, { depth: s.L.depth, multipv: s.L.mpv });
-  if (S !== s || s.over || !r) { if (S === s) s.thinking = false; return; }
-  const uci = chooseMove(r, s.L);
-  // délai « humain »
+  const P = paramsForElo(s.bot.elo);
+  const r = await engine.analyse(fen, { depth: P.depth, multipv: P.mpv });
+  if (S !== s || s.over || !r || (s.token || 0) !== token) return;
+  const uci = chooseMove(r, s.bot, fen);
   let think = 350 + Math.random() * 900;
   if (s.g.clocks) {
     const left = s.g.clocks[s.chess.turn()] - (performance.now() - s.turnStart);
     think = Math.min(think + Math.min(left / 80, 2500) * Math.random(), left / 10);
   }
-  const wait = Math.max(0, think - (performance.now() - t0));
-  await new Promise(res => setTimeout(res, wait));
-  if (S !== s || s.over) return;
+  await new Promise(res => setTimeout(res, Math.max(0, think - (performance.now() - t0))));
+  if (S !== s || s.over || (s.token || 0) !== token) return;
   const m = uciToMove(s.chess, uci);
   s.thinking = false;
   if (!m) { sync(); return; }
   s.g.moves.push(moveToUci(m));
   pressClock();
   moveSound(m, s.chess);
+  s.view = null;
   sync();
   persist();
   checkEnd();
 }
 
-function chooseMove(r, L) {
-  const lines = r.lines.filter(l => l.move);
-  if (!lines.length) return r.best;
-  if (L.T === 0 || lines.length === 1) return lines[0].move;
-  const top = lines[0];
-  if (top.mate != null && top.mate > 0 && top.mate <= 2 && Math.random() < 0.6 + 0.05 * LEVELS.indexOf(L)) return top.move;
-  const best = lineValue(top);
-  const w = lines.map(l => Math.exp(-Math.max(0, best - lineValue(l)) / L.T));
-  let x = Math.random() * w.reduce((a, b) => a + b, 0);
-  for (let i = 0; i < lines.length; i++) { x -= w[i]; if (x <= 0) return lines[i].move; }
-  return top.move;
-}
-
-// --- fin de partie ---------------------------------------------------------------------
+// --- fin de partie -----------------------------------------------------------------------
 function checkEnd() {
   const c = S.chess;
   if (!c.isGameOver()) return false;
@@ -353,62 +508,58 @@ function checkEnd() {
 
 async function offerDraw() {
   if (!S || S.over) return;
-  if (S.chess.history().length < 30) { toast('Caïssa refuse : c\'est trop tôt pour une nulle.'); return; }
+  const who = S.bot.custom ? 'Caïssa' : S.bot.name;
+  if (S.chess.history().length < 30) { toast(`${who} refuse : c'est trop tôt pour une nulle.`); return; }
   const r = await engine.analyse(S.chess.fen(), { depth: 10 });
   if (!S) return;
   const v = lineValue(r?.lines[0]) * (S.chess.turn() === S.g.you ? 1 : -1);
   if (Math.abs(v) <= 40) endGame('1/2-1/2', 'Nulle acceptée');
-  else toast(v > 0 ? 'Caïssa refuse : tu es mieux, joue pour gagner !' : 'Caïssa refuse la nulle et continue.');
-}
-
-async function takeback() {
-  if (!S || S.over || !S.g.prefs.takeback) return;
-  engine.cancelAll();
-  const { chess, g } = S;
-  let n = 0;
-  if (chess.turn() !== g.you && chess.history().length) { chess.undo(); n++; }
-  else if (chess.history().length >= 2) { chess.undo(); chess.undo(); n += 2; }
-  else return;
-  g.moves.splice(g.moves.length - n, n);
-  S.thinking = false;
-  S.turnStart = performance.now();
-  g.takebacks = (g.takebacks || 0) + 1;
-  sync();
-  persist();
-  if (chess.turn() !== g.you) botMove();
+  else toast(v > 0 ? `${who} refuse : tu es mieux, joue pour gagner !` : `${who} refuse la nulle et continue.`);
 }
 
 function endGame(result, reason) {
   const s = S;
   if (!s || s.over) return;
   s.over = true;
+  s.view = null;
   engine.cancelAll();
   clearInterval(s.timer);
   renderClocks();
-  const g = s.g;
+  const g = s.g, bot = s.bot;
   const win = (result === '1-0' && g.you === 'w') || (result === '0-1' && g.you === 'b');
   const draw = result === '1/2-1/2';
   s.overText = `${win ? 'Victoire' : draw ? 'Nulle' : 'Défaite'} — ${reason}`;
   sound('end');
+  const say = pick(win ? bot.lose : draw ? bot.draw : bot.win);
+  $('#pl-say', s.root).textContent = say;
   const name = settings.get().playerName || 'Moi';
-  const bot = `Caïssa niv. ${g.prefs.level} (${s.L.elo})`;
+  const botName = `${bot.custom ? 'Caïssa' : bot.name} (${bot.elo})`;
   const rec = gameFromChess(s.chess, {
-    white: g.you === 'w' ? name : bot, black: g.you === 'b' ? name : bot, result, you: g.you, source: 'caissa',
-    event: `Partie contre Caïssa · ${s.cad.label}`, timeControl: s.cad.id, termination: reason,
+    white: g.you === 'w' ? name : botName, black: g.you === 'b' ? name : botName, result, you: g.you, source: 'caissa',
+    event: `Partie contre ${botName} · ${s.cad.label}`, timeControl: s.cad.id, termination: reason,
   });
-  rec.level = g.prefs.level; rec.netUsed = g.netUsed || 0; rec.takebacks = g.takebacks || 0;
-  if (!rec.moves.length) { store.del('currentGame'); sync(); return; }
-  saveGame(rec);
+  Object.assign(rec, { botId: bot.id, botElo: bot.elo, rated: s.rated, netUsed: g.netUsed || 0, takebacks: g.takebacks || 0, hints: g.hints || 0, threats: g.threats || 0 });
   store.del('currentGame');
-  const st = store.get('playStats', { games: 0, wins: 0, draws: 0, losses: 0, byLevel: {} });
+  if (!rec.moves.length) { sync(); return; }
+  let elo = null;
+  if (s.rated) { elo = applyResult(bot.elo, win ? 1 : draw ? 0.5 : 0, { bot: bot.id }); rec.eloBefore = elo.before; rec.eloAfter = elo.after; }
+  saveGame(rec);
+  const st = store.get('playStats', { games: 0, wins: 0, draws: 0, losses: 0 });
   st.games++; if (win) st.wins++; else if (draw) st.draws++; else st.losses++;
-  const bl = st.byLevel[g.prefs.level] ||= { w: 0, d: 0, l: 0 };
-  if (win) bl.w++; else if (draw) bl.d++; else bl.l++;
   store.set('playStats', st);
+  const bs = store.get('botStats', {});
+  const b = bs[bot.id] ||= { w: 0, d: 0, l: 0 };
+  if (win) b.w++; else if (draw) b.d++; else b.l++;
+  store.set('botStats', bs);
   sync();
-  modal(`<div class="result-big" style="color:${win ? 'var(--good)' : draw ? 'var(--text)' : 'var(--bad)'}">${win ? 'Victoire' : draw ? 'Nulle' : 'Défaite'}</div>
-    <p class="muted" style="text-align:center">${esc(reason)} · ${result}${rec.netUsed ? ` · filet utilisé ${rec.netUsed} fois` : ''}</p>
-    <p style="text-align:center">${win ? 'Bien joué. Regarde quand même l\'analyse : les erreurs de l\'adversaire t\'apprennent aussi.' : 'L\'analyse va te montrer les moments clés et les ranger dans ton carnet d\'erreurs.'}</p>
-    <div class="stack"><a class="btn primary block" href="#/analyse?game=${rec.id}&auto=1" data-close>Analyser la partie</a>
+  const aids = [rec.takebacks && `${rec.takebacks} coup${rec.takebacks > 1 ? 's' : ''} annulé${rec.takebacks > 1 ? 's' : ''}`, rec.hints && `${rec.hints} indice${rec.hints > 1 ? 's' : ''}`, rec.netUsed && `filet ×${rec.netUsed}`].filter(Boolean).join(' · ');
+  modal(`<div class="row" style="justify-content:center;gap:10px">${avatar(bot, 40)}<span class="bubble">${esc(say)}</span></div>
+    <div class="result-big" style="color:${win ? 'var(--good)' : draw ? 'var(--text)' : 'var(--bad)'}">${win ? 'Victoire' : draw ? 'Nulle' : 'Défaite'}</div>
+    <p class="muted" style="text-align:center;margin:0 0 10px">${esc(reason)} · ${result}${aids ? ' · ' + aids : ''}</p>
+    ${elo ? `<div class="elo-change"><span>Ton Elo</span><b>${elo.before} → ${elo.after}</b><em class="${elo.delta >= 0 ? 'good-t' : 'bad-t'}">${elo.delta >= 0 ? '+' : ''}${elo.delta}</em></div>`
+      : `<p class="small muted" style="text-align:center">Partie d'entraînement : ton Elo ne change pas. Le bilan va estimer ton niveau sur cette partie.</p>`}
+    <div class="stack" style="margin-top:12px"><a class="btn primary block" href="#/analyse?game=${rec.id}&auto=1" data-close>Voir le bilan de la partie</a>
     <div class="grid2"><a class="btn" href="#/jouer?new=1" data-close>Nouvelle partie</a><button class="btn ghost" data-close>Fermer</button></div></div>`);
 }
+
+void pvToSan;

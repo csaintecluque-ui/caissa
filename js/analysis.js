@@ -4,7 +4,7 @@ import { Board } from './board.js';
 import { Chess, $, $$, esc, uciToMove, moveToUci, destsFor, checkSquare, moveSound, toast, sanFr, pvToSan, numberedSan, fmtDate } from './util.js';
 import { store, settings } from './store.js';
 import { engine, lineWin, formatEval } from './engine.js';
-import { listGames, getGame, saveGame, deleteGame, analyseGame, addMistakesFromAnalysis, LABELS, CATEGORIES, describeResult,
+import { listGames, getGame, saveGame, deleteGame, analyseGame, addMistakesFromAnalysis, LABELS, CATEGORIES, CLASSES, CLASS_ORDER, ANALYSIS_VERSION, describeResult,
   fetchLichessGames, fetchChesscomGames, mergeImported, splitPgn, parsePgnGame, pgnOf } from './games.js';
 import { askClaude, explainMovePrompt, explainPositionPrompt, hasKey } from './coach.js';
 
@@ -117,7 +117,7 @@ function layout(root, title, sub) {
 
 function openFen(root, fen) {
   layout(root, 'Analyse de position', '');
-  const board = new Board($('#an-board', root), { coords: settings.get().coords, onMove: (f, t, p) => explore(f, t, p) });
+  const board = new Board($('#an-board', root), { onMove: (f, t, p) => explore(f, t, p) });
   A = { root, board, g: null, base: [new Chess(fen).fen()], sans: [], ply: 0, variation: [], showBest: false, cancelled: false };
   board.setOrientation(fen.split(' ')[1]);
   $('#an-side', root).innerHTML = `<div class="card" id="an-current"></div><div class="card"><div class="row between"><h3>Moteur</h3><span class="muted small" id="an-depth"></span></div><div class="engine-lines" id="an-lines"></div></div>
@@ -127,9 +127,10 @@ function openFen(root, fen) {
 }
 
 function openGame(root, g, auto) {
+  if (g.analysis && g.analysis.v !== ANALYSIS_VERSION) { g.analysis = null; g.legacy = true; }
   const r = describeResult(g);
   layout(root, `${esc(g.white)} – ${esc(g.black)}`, `${g.result}${r.txt && g.you ? ' · ' + r.txt : ''}`);
-  const board = new Board($('#an-board', root), { coords: settings.get().coords, orientation: g.you || 'w', onMove: (f, t, p) => explore(f, t, p) });
+  const board = new Board($('#an-board', root), { orientation: g.you || 'w', onMove: (f, t, p) => explore(f, t, p) });
   const c = new Chess(g.startFen);
   const base = [c.fen()], sans = [], ucis = [];
   for (const u of g.moves) { const m = uciToMove(c, u); if (!m) break; base.push(c.fen()); sans.push(m.san); ucis.push([m.from, m.to]); }
@@ -170,7 +171,8 @@ function bindNav() {
 function firstKeyMoment() {
   const an = A.g?.analysis;
   if (!an || !A.g.you) return 0;
-  const i = an.moves.findIndex((m, k) => m.label === 'blunder' && an.positions[k].turn === A.g.you);
+  let i = an.moves.findIndex((m, k) => (m.cls === 'blunder' || m.cls === 'miss') && an.positions[k].turn === A.g.you);
+  if (i < 0) i = an.moves.findIndex((m, k) => m.cls === 'mistake' && an.positions[k].turn === A.g.you);
   return i >= 0 ? i + 1 : 0;
 }
 
@@ -202,8 +204,7 @@ function show() {
   const an = A.g?.analysis;
   if (an && !A.variation.length && A.ply > 0) {
     const mv = an.moves[A.ply - 1];
-    if (mv?.label) marks[A.ucis[A.ply - 1][1]] = mv.label;
-    else if (mv && mv.uci === mv.best) marks[A.ucis[A.ply - 1][1]] = 'best';
+    if (mv?.cls) marks[A.ucis[A.ply - 1][1]] = 'c-' + mv.cls;
   }
   A.board.setMarks(marks);
   renderMoves();
@@ -227,7 +228,7 @@ function arrows() {
   if (A.showBest && best) ar.push({ from: best.slice(0, 2), to: best.slice(2, 4), kind: 'best' });
   if (A.showMistake && !A.variation.length && an && A.ply < an.moves.length) {
     const mv = an.moves[A.ply];
-    if (mv.label) ar.push({ from: mv.uci.slice(0, 2), to: mv.uci.slice(2, 4), kind: 'bad' });
+    if (mv.label || mv.cls === 'miss') ar.push({ from: mv.uci.slice(0, 2), to: mv.uci.slice(2, 4), kind: 'bad' });
   }
   A.board.setArrows(ar);
   void fen;
@@ -330,6 +331,11 @@ function finishJudge(line) {
 }
 
 // --- liste des coups, courbe, carte du coup courant -------------------------------------
+const NOTABLE = new Set(['brilliant', 'great', 'inaccuracy', 'mistake', 'miss', 'blunder']);
+function clsIcon(cls, big = false) {
+  const c = CLASSES[cls];
+  return `<span class="cls-ic ${big ? 'big' : ''}" style="background:${c.color}" title="${c.name}">${c.sym}</span>`;
+}
 function renderMoves() {
   const el = $('#an-moves', A.root);
   if (!el) return;
@@ -341,8 +347,9 @@ function renderMoves() {
     const num = Math.floor((i + (firstWhite ? 0 : 1)) / 2) + (+A.base[0].split(' ')[5] || 1);
     if (white) h += `<span class="n">${num}.</span>`;
     else if (i === 0) h += `<span class="n">${num}.</span><span class="mv">…</span>`;
-    const lab = an?.moves[i]?.label;
-    h += `<span class="mv ${A.ply === i + 1 && !A.variation.length ? 'on' : ''}" data-p="${i + 1}">${esc(sanFr(san))}${lab ? `<span class="gl ${lab}">${LABELS[lab].sym}</span>` : ''}</span>`;
+    const cls = an?.moves[i]?.cls;
+    const mark = cls && NOTABLE.has(cls) ? `<span class="gl" style="color:${CLASSES[cls].color}">${CLASSES[cls].sym}</span>` : cls === 'book' ? '<span class="gl book">≡</span>' : '';
+    h += `<span class="mv ${A.ply === i + 1 && !A.variation.length ? 'on' : ''}" data-p="${i + 1}">${esc(sanFr(san))}${mark}</span>`;
   });
   el.innerHTML = h;
 }
@@ -355,18 +362,24 @@ function renderGraph() {
   const P = an.positions, n = P.length - 1 || 1, W = 300, H = 80;
   const pts = P.map((p, i) => [(i / n) * W, H - (p.win / 100) * H]);
   const area = `M0,${H} ` + pts.map(p => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ` L${W},${H} Z`;
-  const dots = an.moves.map((m, i) => m.label && m.label !== 'inaccuracy' ? `<circle cx="${pts[i + 1][0]}" cy="${pts[i + 1][1]}" r="2.6" fill="${m.label === 'blunder' ? '#c43b2a' : '#d97a26'}"/>` : '').join('');
+  const dots = an.moves.map((m, i) => ['blunder', 'mistake', 'miss', 'brilliant', 'great'].includes(m.cls) ? `<circle cx="${pts[i + 1][0].toFixed(1)}" cy="${pts[i + 1][1].toFixed(1)}" r="2.8" fill="${CLASSES[m.cls].color}" stroke="#fff" stroke-width=".6"/>` : '').join('');
   const x = (A.ply / n) * W;
-  wrap.innerHTML = `<svg class="graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" id="an-graph">
+  wrap.innerHTML = `<svg class="graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" id="an-graph" role="img" aria-label="Courbe d'évaluation">
     <rect x="0" y="0" width="${W}" height="${H}" fill="#2c2420"/>
     <path d="${area}" fill="#f2e8d6"/>
     <line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="rgba(201,128,79,.6)" stroke-width=".6" stroke-dasharray="3 3"/>
     ${dots}
-    <line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="var(--accent)" stroke-width="1.6"/></svg>`;
+    <line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="#C9804F" stroke-width="1.6"/></svg>`;
   const svg = $('#an-graph', A.root);
   const pick = e => { const r = svg.getBoundingClientRect(); const p = Math.round(((e.clientX - r.left) / r.width) * n); go(Math.max(0, Math.min(n, p))); };
   svg.onpointerdown = e => { pick(e); svg.setPointerCapture(e.pointerId); svg.onpointermove = pick; };
   svg.onpointerup = () => { svg.onpointermove = null; };
+}
+
+function phaseMark(v) {
+  if (v == null) return '<span class="muted">—</span>';
+  const c = v >= 85 ? 'good' : v >= 65 ? 'mid' : 'bad';
+  return `<span class="ph ${c}">${v}</span>`;
 }
 
 function renderSummary() {
@@ -375,27 +388,40 @@ function renderSummary() {
   const g = A.g, an = g.analysis;
   if (A.running) return;
   if (!an) {
-    el.innerHTML = `<h3>Analyse de la partie</h3>
-      <p class="muted small">Stockfish va examiner chaque coup (profondeur ${settings.get().analysisDepth}). Compte environ 1 à 2 secondes par coup sur un téléphone.</p>
+    el.innerHTML = `<h3>Bilan de la partie</h3>
+      <p class="muted small">${g.legacy ? 'Le nouveau bilan (coups brillants, occasions manquées, Elo estimé…) est disponible : relance l’analyse. ' : ''}Stockfish va examiner chaque coup (profondeur ${settings.get().analysisDepth}). Compte 1 à 2 secondes par coup sur un téléphone.</p>
       ${sideChooser(g)}
-      <button class="btn primary block" id="an-run">Lancer l'analyse</button>`;
+      <button class="btn primary block" id="an-run">${g.legacy ? 'Relancer l’analyse' : 'Lancer l’analyse'}</button>`;
     $('#an-run', el).onclick = runAnalysis;
     bindSideChooser(el);
     return;
   }
   const yc = g.you;
   const names = { w: g.white, b: g.black };
-  const row = (label, key) => `<span>${label}</span><span class="v">${an.counts.w[key]}</span><span class="v">${an.counts.b[key]}</span>`;
-  const keyMoves = yc ? an.moves.map((m, i) => ({ m, i })).filter(x => an.positions[x.i].turn === yc && (x.m.label === 'blunder' || x.m.label === 'mistake')) : [];
+  const elo = s => an.estElo?.[s] ? `≈ ${an.estElo[s]}` : '—';
+  const rows = CLASS_ORDER.map(k => `<span class="cls-row">${clsIcon(k)}${CLASSES[k].name}</span><span class="v" style="color:${an.classes.w[k] ? CLASSES[k].color : ''}">${an.classes.w[k]}</span><span class="v" style="color:${an.classes.b[k] ? CLASSES[k].color : ''}">${an.classes.b[k]}</span>`).join('');
+  const keyMoves = yc ? an.moves.map((m, i) => ({ m, i })).filter(x => an.positions[x.i].turn === yc && ['blunder', 'miss', 'mistake', 'brilliant', 'great'].includes(x.m.cls)) : [];
+  const eloLine = g.rated && g.eloBefore != null ? `<div class="elo-change small"><span>Ton Elo Caïssa</span><b>${g.eloBefore} → ${g.eloAfter}</b><em class="${g.eloAfter >= g.eloBefore ? 'good-t' : 'bad-t'}">${g.eloAfter >= g.eloBefore ? '+' : ''}${g.eloAfter - g.eloBefore}</em></div>` : '';
   el.innerHTML = `
-    <div class="row between"><h3>Bilan</h3>${yc ? `<span class="badge">Tu avais les ${yc === 'w' ? 'Blancs' : 'Noirs'}</span>` : ''}</div>
-    <div class="summary-grid" style="margin-top:6px">
-      <span></span><span class="h">${esc(trim(names.w))}</span><span class="h">${esc(trim(names.b))}</span>
+    <div class="row between"><h3>Bilan de la partie</h3>${yc ? `<span class="badge">Tu avais les ${yc === 'w' ? 'Blancs' : 'Noirs'}</span>` : ''}</div>
+    ${an.opening?.name ? `<p class="small muted" style="margin:4px 0 0">Ouverture : <b>${esc(an.opening.name)}</b></p>` : ''}
+    <div class="summary-grid" style="margin-top:10px">
+      <span></span><span class="h">${esc(trim(names.w))}${yc === 'w' ? ' (toi)' : ''}</span><span class="h">${esc(trim(names.b))}${yc === 'b' ? ' (toi)' : ''}</span>
       <span>Précision</span><span class="v acc">${an.acc.w ?? '—'}</span><span class="v acc">${an.acc.b ?? '—'}</span>
-      ${row('<span class="gl inaccuracy">?!</span> Imprécisions', 'inaccuracy')}${row('<span class="gl mistake">?</span> Erreurs', 'mistake')}${row('<span class="gl blunder">??</span> Gaffes', 'blunder')}
+      <span>Elo estimé sur la partie</span><span class="v est">${elo('w')}</span><span class="v est">${elo('b')}</span>
     </div>
+    ${eloLine}
     <div id="an-graphwrap" style="margin-top:12px"></div>
-    ${keyMoves.length ? `<p class="small" style="margin:10px 0 4px"><b>Tes moments clés :</b></p><div class="chips">${keyMoves.map(x => `<button class="chip" data-k="${x.i}">${moveLabel(x.i)} ${LABELS[x.m.label].sym}</button>`).join('')}</div>` : ''}
+    <details class="cls-table" open><summary>Détail des coups</summary>
+      <div class="summary-grid" style="margin-top:8px">${rows}</div></details>
+    <div class="summary-grid phases" style="margin-top:10px">
+      <span class="small muted">Par phase</span><span class="h"></span><span class="h"></span>
+      <span>Ouverture</span><span class="v">${phaseMark(an.phases?.w.opening)}</span><span class="v">${phaseMark(an.phases?.b.opening)}</span>
+      <span>Milieu de partie</span><span class="v">${phaseMark(an.phases?.w.middlegame)}</span><span class="v">${phaseMark(an.phases?.b.middlegame)}</span>
+      <span>Finale</span><span class="v">${phaseMark(an.phases?.w.endgame)}</span><span class="v">${phaseMark(an.phases?.b.endgame)}</span>
+    </div>
+    ${keyMoves.length ? `<p class="small" style="margin:12px 0 4px"><b>Tes moments clés</b></p><div class="chips">${keyMoves.map(x => `<button class="chip" data-k="${x.i}">${clsIcon(x.m.cls)} ${esc(moveLabel(x.i))}</button>`).join('')}</div>` : ''}
+    <p class="tiny muted" style="margin:10px 0 0">Elo estimé : d'après la perte moyenne par coup (${an.acpl?.w ?? '—'} / ${an.acpl?.b ?? '—'} centipions). Indicatif, plus fiable sur les parties longues.</p>
     ${!yc ? sideChooser(g) : ''}`;
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => go(+b.dataset.k + 1));
   bindSideChooser(el);
@@ -426,6 +452,39 @@ function bindSideChooser(el) {
   };
 }
 
+// Commentaire automatique d'un coup (sans IA)
+const PIECE = { p: 'le pion', n: 'le cavalier', b: 'le fou', r: 'la tour', q: 'la dame', k: 'le roi' };
+function commentFor(k) {
+  const an = A.g.analysis, mv = an.moves[k], before = an.positions[k], after = an.positions[k + 1];
+  const best = sanFr(mv.bestSan || '');
+  const line = (fen, pv, n = 5) => numberedSan(fen, pvToSan(fen, pv || [], n).map(sanFr));
+  let reply = null;
+  if (after.line?.pv?.[0]) { const c = new Chess(after.fen); reply = uciToMove(c, after.line.pv[0]); }
+  const mateIn = l => (l?.mate != null && l.mate > 0 ? l.mate : null);
+  const errText = () => {
+    switch (mv.category) {
+      case 'hanging': return reply?.captured ? `Ce coup laisse ${PIECE[reply.captured]} en ${reply.to} insuffisamment protégé${reply.captured === 'r' || reply.captured === 'q' ? 'e' : ''} : l'adversaire répond ${sanFr(reply.san)}.` : 'Ce coup laisse une pièce en prise.';
+      case 'allowedMate': return `Ce coup permet un mat en ${mateIn(after.line)} : ${line(after.fen, after.line.pv, 6)}.`;
+      case 'missedMate': return `Il y avait un mat en ${mateIn(before.line)} : ${line(before.fen, before.line.pv, 6)}.`;
+      case 'allowedTactic': return reply ? `Après ce coup, l'adversaire dispose de ${sanFr(reply.san)}, qui lui donne l'avantage.` : 'Ce coup donne l\'avantage à l\'adversaire.';
+      case 'missedTactic': return `Il y avait un gain avec ${best} : ${line(before.fen, before.line.pv)}.`;
+      default: return `Ce coup affaiblit la position. Il fallait jouer ${best}.`;
+    }
+  };
+  switch (mv.cls) {
+    case 'book': return `Coup de théorie${an.opening?.name ? ` (${an.opening.name})` : ''} : il suit les ouvertures connues.`;
+    case 'brilliant': return `Coup brillant ! ${sanFr(mv.san)} offre du matériel, mais c'est bien le meilleur coup : ${line(before.fen, before.line.pv, 6)}.`;
+    case 'great': return `Très fort : c'était le seul coup qui gardait l'équilibre ou l'avantage. Les autres coups étaient nettement moins bons.`;
+    case 'best': return 'Meilleur coup selon Stockfish.';
+    case 'excellent': return `Excellent coup, presque aussi fort que ${best}.`;
+    case 'good': return `Bon coup. Un peu plus précis : ${best}.`;
+    case 'inaccuracy': return `Imprécision : ${best} était plus fort (${line(before.fen, before.line.pv, 4)}).`;
+    case 'miss': return `Occasion manquée : l'adversaire venait de se tromper, et ${best} en profitait (${line(before.fen, before.line.pv, 5)}).`;
+    case 'mistake': case 'blunder': return errText();
+    default: return '';
+  }
+}
+
 function renderCurrent() {
   const el = $('#an-current', A.root);
   if (!el) return;
@@ -437,43 +496,42 @@ function renderCurrent() {
     return;
   }
   const an = A.g?.analysis;
-  const i = A.ply; // coup suivant = an.moves[i]
+  const i = A.ply;
   if (!A.g) {
     el.innerHTML = `<div class="row between"><b>Position</b><button class="btn sm" id="an-ex">Expliquer</button></div><div id="an-coach" style="margin-top:8px"></div>`;
     $('#an-ex', el).onclick = () => explainPosition();
     return;
   }
   if (!an) {
-    el.innerHTML = `<p class="muted small" style="margin:0">${i === 0 ? 'Position de départ.' : 'Coup ' + moveLabel(i - 1)} — lance l'analyse pour voir les erreurs. Tu peux aussi jouer des coups pour explorer.</p>`;
+    el.innerHTML = `<p class="muted small" style="margin:0">${i === 0 ? 'Position de départ.' : 'Coup ' + moveLabel(i - 1)} — lance l'analyse pour le bilan. Tu peux aussi jouer des coups pour explorer.</p>`;
     return;
   }
-  // on commente le coup qui vient d'être joué (ply-1) s'il est annoté, sinon le prochain
-  const k = i > 0 ? i - 1 : 0;
+  if (i === 0) {
+    el.innerHTML = `<p class="small muted" style="margin:0">Position de départ. Avance avec ▶ ou touche un coup dans la liste.</p>`;
+    return;
+  }
+  const k = i - 1;
   const mv = an.moves[k];
-  if (!mv) { el.innerHTML = '<p class="muted small" style="margin:0">Fin de la partie.</p>'; return; }
   const before = an.positions[k], after = an.positions[k + 1];
-  const head = i === 0 ? 'Prochain coup : ' + moveLabel(0) : moveLabel(k);
-  let body = '';
-  if (mv.label) {
-    body = `<p style="margin:6px 0"><span class="badge ${mv.label === 'inaccuracy' ? '' : 'bad'}">${LABELS[mv.label].name}</span> ${mv.category ? `<span class="muted small">· ${CATEGORIES[mv.category]}</span>` : ''}</p>
-      <p class="small" style="margin:0">Meilleur : <b>${esc(sanFr(mv.bestSan || ''))}</b> <span class="muted">(${formatEval(before.line, true, before.turn)} au lieu de ${formatEval(after.line, true, after.turn)})</span></p>
-      <p class="small muted" style="margin:4px 0 0">Suite : ${esc(numberedSan(before.fen, pvToSan(before.fen, before.line.pv || [], 6).map(sanFr)))}</p>
-      <div class="row" style="margin-top:10px"><button class="btn sm" id="an-show">${i === 0 ? 'Voir' : 'Voir sur l\'échiquier'}</button><button class="btn sm primary" id="an-ex">Expliquer</button><button class="btn sm ghost" id="an-try">Rejouer ce moment</button></div>`;
-  } else if (mv.uci === mv.best) body = `<p class="small" style="margin:6px 0 0"><span class="badge good">Meilleur coup</span></p>`;
-  else body = `<p class="small muted" style="margin:6px 0 0">Coup correct. Meilleur selon Stockfish : ${esc(sanFr(mv.bestSan || ''))}.</p>`;
-  el.innerHTML = `<b>${esc(head)}</b>${body}<div id="an-coach" style="margin-top:8px"></div>`;
+  const c = CLASSES[mv.cls];
+  const isErr = ['inaccuracy', 'mistake', 'miss', 'blunder'].includes(mv.cls);
+  el.innerHTML = `
+    <div class="row" style="gap:10px;flex-wrap:nowrap">${clsIcon(mv.cls, true)}<div style="min-width:0"><b>${esc(moveLabel(k))}</b> <span style="color:${c.color};font-weight:700">· ${c.name}</span>
+      <div class="muted small">${formatEval(after.line, true, after.turn)}${isErr ? ` (au lieu de ${formatEval(before.line, true, before.turn)})` : ''}</div></div></div>
+    <p class="small" style="margin:8px 0 0">${esc(commentFor(k))}</p>
+    ${isErr ? `<div class="row" style="margin-top:10px"><button class="btn sm" id="an-show">Voir le meilleur coup</button><button class="btn sm primary" id="an-ex">Expliquer</button><button class="btn sm ghost" id="an-try">Rejouer ce moment</button></div>`
+      : `<div class="row" style="margin-top:8px"><button class="btn sm ghost" id="an-ex">Expliquer</button></div>`}
+    <div id="an-coach" style="margin-top:8px"></div>`;
   const sh = $('#an-show', el);
   if (sh) sh.onclick = () => {
-    // revenir à la position avant l'erreur et montrer coup joué + meilleur
     A.ply = k; A.variation = []; A.showMistake = true; A.showBest = true;
     $('#an-nav [data-n=best]', A.root).classList.add('primary');
     show();
     A.showMistake = false;
   };
-  const ex = $('#an-ex', el);
-  if (ex) ex.onclick = () => explainMove(k);
+  $('#an-ex', el).onclick = () => explainMove(k);
   const tr = $('#an-try', el);
-  if (tr) tr.onclick = () => { A.ply = k; A.variation = []; show(); toast('À toi : trouve un meilleur coup que ' + sanFr(mv.san) + '.'); A.trying = { k }; };
+  if (tr) tr.onclick = () => { A.ply = k; A.variation = []; show(); toast('À toi : trouve mieux que ' + sanFr(mv.san) + '.'); A.trying = { k }; };
 }
 
 // --- analyse complète -----------------------------------------------------------------
@@ -496,6 +554,7 @@ async function runAnalysis() {
   if (!an || a.cancelled) return;
   A.running = false;
   g.analysis = an;
+  delete g.legacy;
   saveGame(g);
   const n = addMistakesFromAnalysis(g, an);
   if (n) toast(`${n} erreur${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''} à ton carnet.`);
@@ -513,7 +572,7 @@ async function explainMove(k) {
   try {
     const txt = await askClaude(explainMovePrompt({
       fen: before.fen, turn: before.turn, side: A.g.you || before.turn,
-      playedSan: sanFr(mv.san), evalAfter: evalTxt(after.line, after.turn), label: LABELS[mv.label]?.name || 'coup',
+      playedSan: sanFr(mv.san), evalAfter: evalTxt(after.line, after.turn), label: CLASSES[mv.cls]?.name || 'coup',
       bestLine: numberedSan(before.fen, pvToSan(before.fen, before.line.pv || [], 6).map(sanFr)), evalBest: evalTxt(before.line, before.turn),
       refutation: after.line?.pv?.length ? numberedSan(after.fen, pvToSan(after.fen, after.line.pv, 6).map(sanFr)) : '',
       category: mv.category ? CATEGORIES[mv.category] : '',

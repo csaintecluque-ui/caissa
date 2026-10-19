@@ -35,11 +35,15 @@ export const settings = {
     lichessUser: '',
     chesscomUser: '',
     sound: true,
-    coords: true,
+    squareNames: 'bords',
     analysisDepth: 13,
     puzzleSource: 'mixte',
   },
-  get() { return { ...this.defaults, ...store.get('settings', {}) }; },
+  get() {
+    const s = { ...this.defaults, ...store.get('settings', {}) };
+    if (s.coords === false && !store.get('settings', {}).squareNames) s.squareNames = 'aucune';
+    return s;
+  },
   set(patch) { store.set('settings', { ...this.get(), ...patch }); },
 };
 

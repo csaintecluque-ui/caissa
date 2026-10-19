@@ -9,8 +9,9 @@ import { puzzleProfile, THEMES } from './puzzles.js';
 import { dueMistakes, weaknessStats, CATEGORIES, listGames } from './games.js';
 import { advice } from './notebook.js';
 import { engine } from './engine.js';
+import { playerRating, setInitialElo } from './rating.js';
 
-export const VERSION = '1.0.1';
+export const VERSION = '1.1.0';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -51,6 +52,7 @@ function home() {
       const s = settings.get();
       const prof = puzzleProfile();
       const ps = store.get('playStats', { games: 0, wins: 0, draws: 0, losses: 0 });
+      const me = playerRating();
       const due = dueMistakes().length;
       const weak = weaknessStats();
       const cur = store.get('currentGame');
@@ -65,14 +67,14 @@ function home() {
           <div><p class="muted" style="margin:0">${hello}${name}</p>
           <div class="hero-title">Une partie à la fois,<br><em>sans paniquer.</em></div></div>
           <div class="stats">
-            <div class="stat"><b>${prof.rating}</b><span>niveau problèmes</span></div>
-            <div class="stat"><b>${prof.solved}</b><span>problèmes réussis${prof.streak > 1 ? ` · série ${prof.streak}` : ''}</span></div>
-            <div class="stat"><b>${ps.wins}–${ps.draws}–${ps.losses}</b><span>contre Caïssa (V–N–D)</span></div>
+            <div class="stat"><b>${me.elo}</b><span>ton Elo Caïssa${me.games < 10 ? ' (provisoire)' : ''}</span></div>
+            <div class="stat"><b>${prof.rating}</b><span>niveau problèmes${prof.streak > 1 ? ` · série ${prof.streak}` : ''}</span></div>
+            <div class="stat"><b>${ps.wins}–${ps.draws}–${ps.losses}</b><span>parties (V–N–D)</span></div>
           </div>
         </div>
         <div class="actions">
           <a class="action" href="#/problemes">${ICONS.puzzle}<b>Problèmes</b><span>Thème : ${THEMES[theme] || 'Mélange'} · adaptés à ton niveau</span></a>
-          <a class="action" href="#/jouer">${ICONS.play}<b>${cur ? 'Reprendre' : 'Jouer'}</b><span>${cur ? 'Ta partie t\'attend' : 'Contre un adversaire « humain », avec pendule'}</span></a>
+          <a class="action" href="#/jouer">${ICONS.play}<b>${cur ? 'Reprendre' : 'Jouer'}</b><span>${cur ? 'Ta partie t\'attend' : '11 personnages de 250 à 3000 Elo'}</span></a>
           <a class="action" href="${toAnalyse ? '#/analyse?game=' + toAnalyse.id + '&auto=1' : '#/analyse'}">${ICONS.analyse}<b>Analyser</b><span>${toAnalyse ? 'Dernière partie pas encore analysée' : 'Tes parties, Lichess, Chess.com'}</span></a>
           <a class="action" href="${due ? '#/carnet?review=1' : '#/carnet'}">${ICONS.book}<b>Carnet</b><span>${due ? `${due} erreur${due > 1 ? 's' : ''} à revoir` : 'Tes erreurs deviennent des exercices'}</span></a>
         </div>
@@ -131,11 +133,15 @@ function openSettings() {
       </div>
       <div><b>Profondeur d'analyse</b><div class="seg" id="st-depth" style="margin-top:6px">
         ${[[10, 'Rapide'], [13, 'Normale'], [16, 'Approfondie']].map(([v, l]) => `<button data-v="${v}" class="${s.analysisDepth === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div><b>Noms des cases</b><div class="seg" id="st-names" style="margin-top:6px">
+        ${[['bords', 'Sur les bords'], ['toutes', 'Sur chaque case'], ['aucune', 'Masqués']].map(([v, l]) => `<button data-v="${v}" class="${s.squareNames === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <label class="field">Mon Elo Caïssa<input id="st-elo" type="number" inputmode="numeric" min="100" max="3000" step="10" value="${playerRating().elo}"></label>
+      <p class="muted small" style="margin:-6px 0 0">Il évolue tout seul après chaque partie classée. Tu peux le corriger ici (par exemple avec ton Elo Lichess ou Chess.com).</p>
       <div><b>Apparence</b><div class="seg" id="st-theme" style="margin-top:6px">
         ${[['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']].map(([v, l]) => `<button data-v="${v}" class="${theme === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       <div>
         <label class="switch"><span>Sons</span><input type="checkbox" id="st-sound" ${s.sound ? 'checked' : ''}></label>
-        <label class="switch"><span>Coordonnées sur l'échiquier</span><input type="checkbox" id="st-coords" ${s.coords ? 'checked' : ''}></label>
+
       </div>
       <div><b>Sauvegarde</b><p class="muted small" style="margin:4px 0 8px">Tes données sont stockées sur cet appareil. Exporte-les pour les transférer ou les mettre à l'abri.</p>
         <div class="row"><button class="btn sm" id="st-export">Exporter</button><label class="btn sm">Importer<input type="file" id="st-import" accept="application/json" hidden></label><button class="btn sm danger" id="st-reset">Tout effacer</button></div></div>
@@ -144,17 +150,19 @@ function openSettings() {
     </div>`, {
     onMount: (m, close) => {
       const segv = id => $(id + ' .on', m)?.dataset.v;
-      ['#st-depth', '#st-theme'].forEach(id => $(id, m).addEventListener('click', e => {
+      ['#st-depth', '#st-theme', '#st-names'].forEach(id => $(id, m).addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;
         $(id, m).querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
       }));
       const collect = () => ({
         playerName: $('#st-name', m).value.trim() || 'Moi', apiKey: $('#st-key', m).value.trim(), model: $('#st-model', m).value.trim() || 'claude-sonnet-5-5',
         lichessUser: $('#st-li', m).value.trim(), chesscomUser: $('#st-cc', m).value.trim(), analysisDepth: +segv('#st-depth'),
-        sound: $('#st-sound', m).checked, coords: $('#st-coords', m).checked,
+        sound: $('#st-sound', m).checked, squareNames: segv('#st-names'),
       });
       $('#st-save', m).onclick = () => {
         settings.set(collect());
+        const elo = +$('#st-elo', m).value;
+        if (elo && elo !== playerRating().elo) setInitialElo(elo);
         const th = segv('#st-theme'); store.set('theme', th); applyTheme();
         close(); toast('Réglages enregistrés.'); route();
       };

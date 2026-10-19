@@ -205,9 +205,10 @@ details.lesson ul { padding-left: 18px; }
 .ar-best { stroke: var(--arrow-best); }
 .ar-bad { stroke: var(--arrow-bad); }
 .ar-hint { stroke: var(--arrow-hint); }
-.b-coords { pointer-events: none; z-index: 3; font: 700 clamp(8px, 1.9vw, 11px)/1 var(--sans); }
-.b-coords .cf { position: absolute; bottom: 2px; width: 12.5%; text-align: right; padding-right: 3px; }
-.b-coords .cr { position: absolute; left: 3px; height: 12.5%; padding-top: 3px; }
+.b-coords { pointer-events: none; z-index: 3; font: 700 clamp(9px, 2.5vw, 13px)/1 var(--sans); }
+.b-coords .cf { position: absolute; bottom: 3px; width: 12.5%; text-align: right; padding-right: 4px; }
+.b-coords .cr { position: absolute; left: 4px; height: 12.5%; padding-top: 4px; }
+.b-coords .cn { position: absolute; width: 12.5%; height: 12.5%; display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 4px 3px 0; font-weight: 600; opacity: .8; }
 .on-light { color: var(--sq-dark); }
 .on-dark { color: var(--sq-light); }
 .b-promo { z-index: 20; background: rgba(27,21,18,.55); }
@@ -281,3 +282,57 @@ details.lesson ul { padding-left: 18px; }
 .checklist li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .checklist li b { color: var(--accent); font-family: var(--display); font-size: 20px; line-height: 1; min-width: 18px; }
 .result-big { font-family: var(--display); font-size: 40px; font-weight: 700; text-align: center; line-height: 1; margin: 6px 0; }
+
+/* --- personnages ------------------------------------------------------------- */
+.bots { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.bot { appearance: none; text-align: left; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; padding: 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); cursor: pointer; color: var(--text); font: inherit; box-shadow: var(--shadow); transition: border-color .15s, transform .08s; }
+.bot:active { transform: scale(.98); }
+.bot.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
+.bot .avatar { grid-row: span 1; }
+.bot-t { display: flex; flex-direction: column; min-width: 0; }
+.bot-t b { font-family: var(--display); font-size: 19px; font-weight: 700; line-height: 1.1; }
+.bot-elo { font-size: 12px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.bot-bio { grid-column: 1 / -1; font-size: 12.5px; color: var(--text-2); line-height: 1.35; }
+.bot-rec { grid-column: 1 / -1; font-size: 11px; font-weight: 700; color: var(--text-2); letter-spacing: .02em; }
+.avatar { display: inline-grid; place-items: center; flex: none; border-radius: 50%; color: #fff; font-family: var(--display); font-weight: 700; box-shadow: inset 0 0 0 2px rgba(255,255,255,.18); }
+.elo-chip { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.elo-chip span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); }
+.elo-chip b { font-family: var(--display); font-size: 30px; font-weight: 700; }
+.elo-chip em { font-style: normal; font-size: 11px; color: var(--text-2); }
+.good-t { color: var(--good); } .bad-t { color: var(--bad); }
+.bubble-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.bubble { display: inline-block; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; font-size: 13.5px; font-style: italic; }
+.elo-change { display: flex; align-items: baseline; justify-content: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--surface-2); margin: 8px 0 0; }
+.elo-change span { font-size: 12px; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; }
+.elo-change b { font-family: var(--display); font-size: 24px; font-variant-numeric: tabular-nums; }
+.elo-change em { font-style: normal; font-weight: 800; }
+.elo-change.small b { font-size: 20px; }
+
+/* --- bilan de partie ------------------------------------------------------- */
+.cls-ic { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: #fff; font: 800 11px/1 var(--sans); flex: none; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.cls-ic.big { width: 34px; height: 34px; font-size: 16px; }
+.cls-row { display: flex; align-items: center; gap: 8px; }
+.summary-grid .v.est { font-family: var(--display); font-size: 20px; font-weight: 700; }
+.cls-table summary { cursor: pointer; font-weight: 600; font-size: 14px; margin-top: 12px; }
+.ph { display: inline-block; min-width: 34px; padding: 2px 6px; border-radius: 8px; font-weight: 800; font-size: 13px; }
+.ph.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.ph.mid { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.ph.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.tiny { font-size: 11.5px; }
+.gl.book { color: #a5835e; }
+.sq-mark[class*="c-"]::before {
+  position: absolute; top: -2%; right: -2%; width: 42%; height: 42%; border-radius: 50%; display: grid; place-items: center; z-index: 5;
+  font: 800 clamp(9px, 2.2vw, 13px)/1 var(--sans); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.sq-mark.c-brilliant::before { content: '!!'; background: #1fa39d; }
+.sq-mark.c-great::before { content: '!'; background: #4a86c5; }
+.sq-mark.c-best::before { content: '★'; background: #5f9c3b; }
+.sq-mark.c-excellent::before { content: '✓'; background: #76a650; }
+.sq-mark.c-good::before { content: '✓'; background: #93a876; }
+.sq-mark.c-book::before { content: '≡'; background: #a5835e; }
+.sq-mark.c-inaccuracy::before { content: '?!'; background: #d1a114; }
+.sq-mark.c-mistake::before { content: '?'; background: #e07a26; }
+.sq-mark.c-miss::before { content: '×'; background: #d5574b; }
+.sq-mark.c-blunder::before { content: '??'; background: #c4352a; }
+.setup > div > b:first-child { display: block; }
+.mv.on .gl { color: inherit !important; }

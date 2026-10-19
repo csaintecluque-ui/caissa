@@ -3,6 +3,8 @@
 import { Chess, uciToMove, moveToUci, pvToSan, sanFr, PIECE_VAL } from './util.js';
 import { store, settings, uid } from './store.js';
 import { engine, lineWin, lineValue } from './engine.js';
+import { OPENINGS } from './openings.js';
+import { eloFromAcpl } from './rating.js';
 
 const MAX_GAMES = 80;
 
@@ -72,7 +74,9 @@ export function parsePgnGame(pgn, meta = {}) {
   const me = [s.lichessUser, s.chesscomUser, meta.user].filter(Boolean).map(x => x.toLowerCase());
   if (me.includes((h.White || '').toLowerCase())) g.you = 'w';
   else if (me.includes((h.Black || '').toLowerCase())) g.you = 'b';
-  g.extId = h.Site || h.Link || '';
+  const site = h.Link || h.Site || '';
+  g.extId = site && site !== '?' ? site : '';
+  g.key = [g.white, g.black, g.result, g.moves.join(' ')].join('|');
   g.whiteElo = h.WhiteElo || ''; g.blackElo = h.BlackElo || '';
   return g;
 }
@@ -112,6 +116,7 @@ export function mergeImported(list) {
   let added = 0;
   for (const g of list) {
     if (g.extId && games.some(x => x.extId === g.extId)) continue;
+    if (!g.extId && g.key && games.some(x => x.key === g.key)) continue;
     games.push(g); added++;
   }
   games.sort((a, b) => b.date - a.date);
@@ -125,9 +130,24 @@ export const LABELS = {
   mistake: { sym: '?', name: 'Erreur' },
   inaccuracy: { sym: '?!', name: 'Imprécision' },
 };
+// Classification façon « bilan de partie »
+export const CLASSES = {
+  brilliant: { sym: '!!', name: 'Brillant', color: '#1fa39d' },
+  great: { sym: '!', name: 'Très fort', color: '#4a86c5' },
+  best: { sym: '★', name: 'Meilleur', color: '#5f9c3b' },
+  excellent: { sym: '✓', name: 'Excellent', color: '#76a650' },
+  good: { sym: '✓', name: 'Bon', color: '#93a876' },
+  book: { sym: '≡', name: 'Théorie', color: '#a5835e' },
+  inaccuracy: { sym: '?!', name: 'Imprécision', color: '#d1a114' },
+  mistake: { sym: '?', name: 'Erreur', color: '#e07a26' },
+  miss: { sym: '×', name: 'Occasion manquée', color: '#d5574b' },
+  blunder: { sym: '??', name: 'Gaffe', color: '#c4352a' },
+};
+export const CLASS_ORDER = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder'];
+export const ANALYSIS_VERSION = 2;
 
 export function classify(dropPct) {
-  if (dropPct >= 15) return 'blunder';
+  if (dropPct >= 20) return 'blunder';
   if (dropPct >= 10) return 'mistake';
   if (dropPct >= 5) return 'inaccuracy';
   return null;
@@ -136,61 +156,175 @@ export function moveAccuracy(dropPct) {
   return Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * Math.max(0, dropPct)) - 3.1669));
 }
 
+// Ouverture : plus longue ligne du répertoire qui est un préfixe de la partie
+export function detectOpening(sans, startFen) {
+  if (startFen && startFen !== new Chess().fen()) return { name: null, plies: 0 };
+  let best = { name: null, plies: 0 };
+  for (const [name, line] of OPENINGS) {
+    const l = line.split(' ');
+    if (l.length > sans.length || l.length <= best.plies) continue;
+    if (l.every((m, i) => m === sans[i])) best = { name, plies: l.length };
+  }
+  return best;
+}
+
+const cpOf = l => {
+  if (!l) return 0;
+  if (l.over === 'mate') return -1000;
+  if (l.over === 'draw') return 0;
+  if (l.mate != null) return l.mate > 0 ? 1000 : -1000;
+  return Math.max(-1000, Math.min(1000, l.cp));
+};
+function nonPawnMaterial(fen) {
+  const v = { n: 3, b: 3, r: 5, q: 9 };
+  let t = 0, queens = 0;
+  for (const ch of fen.split(' ')[0]) { const k = ch.toLowerCase(); if (v[k]) t += v[k]; if (k === 'q') queens++; }
+  return { t, queens };
+}
+function phaseOf(i, fen, bookPlies) {
+  const { t, queens } = nonPawnMaterial(fen);
+  if (t <= 20 || (queens === 0 && t <= 30)) return 'endgame';
+  if (i < Math.max(bookPlies, 16)) return 'opening';
+  return 'middlegame';
+}
+function balance(fen, side) {
+  const v = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  let s = 0;
+  for (const ch of fen.split(' ')[0]) { const k = ch.toLowerCase(); if (v[k] == null) continue; const col = ch === k ? 'b' : 'w'; s += (col === side ? 1 : -1) * v[k]; }
+  return s;
+}
+function isSacrifice(before, after, uci, mover) {
+  const b0 = balance(before.fen, mover);
+  const moved = new Chess(before.fen).get(uci.slice(0, 2));
+  const target = new Chess(before.fen).get(uci.slice(2, 4));
+  const trade = target && PIECE_VAL[target.type] >= PIECE_VAL[moved.type] - 1;
+  // 1) le matériel reste en déficit après la meilleure réponse (et notre éventuelle reprise)
+  const pv = after.line?.pv || [];
+  if (pv[0]) {
+    const c = new Chess(after.fen);
+    const r = uciToMove(c, pv[0]);
+    if (r?.captured) {
+      if (pv[1]) { const c2 = new Chess(c.fen()); const r2 = uciToMove(c2, pv[1]); if (r2?.captured) c.load(c2.fen()); }
+      if (balance(c.fen(), mover) <= b0 - 2) return true;
+    }
+  }
+  if (trade) return false;
+  // 2) pièce offerte que l'adversaire ne prend pas : attaquée par moins fort qu'elle, ou sans défense
+  const pos = new Chess(after.fen);
+  const piece = pos.get(uci.slice(2, 4));
+  if (!piece || PIECE_VAL[piece.type] < 3) return false;
+  const opp = mover === 'w' ? 'b' : 'w';
+  const attackers = pos.attackers(uci.slice(2, 4), opp);
+  if (!attackers.length) return false;
+  const defenders = pos.attackers(uci.slice(2, 4), mover);
+  const cheaper = attackers.some(sq => PIECE_VAL[pos.get(sq).type] < PIECE_VAL[piece.type]);
+  return cheaper || defenders.length === 0;
+}
+
 /**
- * Analyse complète. onProgress(i, total, partial) est appelé après chaque position.
- * Résultat : positions[i] = { fen, line (meilleure ligne, pov camp au trait), win (pov Blancs) }
- *            moves[i] = { san, uci, label, drop, best, bestSan, category }
+ * Analyse complète (bilan). onProgress(i, total) est appelé après chaque position.
+ * positions[i] = { fen, line, alt (2e meilleure ligne), win (pov Blancs), turn }
+ * moves[i] = { san, uci, cls, label, drop, best, bestSan, acc, loss, phase, category }
  */
 export async function analyseGame(g, { depth, onProgress, isCancelled } = {}) {
   depth = depth || settings.get().analysisDepth || 13;
   const c = new Chess(g.startFen);
   const fens = [c.fen()];
-  const sans = [];
-  for (const u of g.moves) { const m = uciToMove(c, u); if (!m) break; sans.push(m.san); fens.push(c.fen()); }
+  const sans = [], verbose = [];
+  for (const u of g.moves) { const m = uciToMove(c, u); if (!m) break; sans.push(m.san); verbose.push(m); fens.push(c.fen()); }
+  const trimPv = l => l && { ...l, pv: (l.pv || []).slice(0, 10) };
   const positions = [];
   for (let i = 0; i < fens.length; i++) {
     if (isCancelled?.()) return null;
     const pos = new Chess(fens[i]);
-    let line = null;
+    let line = null, alt = null;
     if (pos.isCheckmate()) line = { mate: 0, cp: null, pv: [], move: null, over: 'mate' };
     else if (pos.isGameOver()) line = { cp: 0, mate: null, pv: [], move: null, over: 'draw' };
     else {
-      const r = await engine.analyse(fens[i], { depth, multipv: 1 });
+      const r = await engine.analyse(fens[i], { depth, multipv: 2 });
       if (!r) return null;
-      line = r.lines[0] || { cp: 0, mate: null, pv: [r.best], move: r.best };
+      line = trimPv(r.lines[0]) || { cp: 0, mate: null, pv: [r.best], move: r.best };
+      alt = trimPv(r.lines[1]) || null;
     }
     const turn = fens[i].split(' ')[1];
-    let winSide;
-    if (line.over === 'mate') winSide = 0; else winSide = lineWin(line);
-    const winWhite = turn === 'w' ? winSide : 100 - winSide;
-    positions.push({ fen: fens[i], line, win: winWhite, turn });
+    const winSide = line.over === 'mate' ? 0 : lineWin(line);
+    positions.push({ fen: fens[i], line, alt, win: turn === 'w' ? winSide : 100 - winSide, turn });
     onProgress?.(i + 1, fens.length, positions);
   }
+  const opening = detectOpening(sans, g.startFen);
   const moves = [];
   for (let i = 0; i < sans.length; i++) {
     const before = positions[i], after = positions[i + 1];
     const mover = before.turn;
-    const winBefore = mover === 'w' ? before.win : 100 - before.win;
-    const winAfter = mover === 'w' ? after.win : 100 - after.win;
-    const drop = Math.max(0, winBefore - winAfter);
-    let label = classify(drop);
+    const wb = mover === 'w' ? before.win : 100 - before.win;
+    const wa = mover === 'w' ? after.win : 100 - after.win;
+    const drop = Math.max(0, wb - wa);
     const best = before.line?.move || null;
-    if (best && best === g.moves[i]) label = null;
-    // une « gaffe » qui ne change pas l'issue (déjà gagné/perdu) n'est qu'une erreur
-    if (label === 'blunder' && (winAfter > 85 || winBefore < 15)) label = 'mistake';
-    const entry = { san: sans[i], uci: g.moves[i], label, drop: Math.round(drop * 10) / 10, best, bestSan: best ? pvToSan(before.fen, [best])[0] : null, acc: moveAccuracy(drop) };
+    const isBest = best && best === g.moves[i];
+    let cls;
+    if (i < opening.plies && drop < 6) cls = 'book';
+    else if (isBest) cls = 'best';
+    else if (drop < 2) cls = 'excellent';
+    else if (drop < 5) cls = 'good';
+    else cls = classify(drop);
+    // erreur sans conséquence quand la partie est déjà jouée
+    if (cls === 'blunder' && (wa > 85 || wb < 15)) cls = 'mistake';
+    if (cls === 'mistake' && (wa > 92 || wb < 8)) cls = 'inaccuracy';
+    // occasion manquée : l'adversaire venait de se tromper et on ne le punit pas
+    if ((cls === 'mistake' || cls === 'blunder') && i > 0) {
+      const w2 = mover === 'w' ? positions[i - 1].win : 100 - positions[i - 1].win;
+      const missedMate = before.line?.mate != null && before.line.mate > 0 && !(after.line?.mate != null && after.line.mate > 0);
+      const allowsMate = after.line?.mate != null && after.line.mate > 0;
+      if (!allowsMate && ((wb - w2 >= 10 && wa <= w2 + 6) || missedMate)) cls = 'miss';
+    }
+    // très fort : seul bon coup dans une position non décidée
+    if ((cls === 'best' || cls === 'excellent') && before.alt) {
+      const wAlt = lineWin(before.alt);
+      const wTop = lineWin(before.line);
+      const prev = verbose[i - 1];
+      const recapture = prev?.captured && verbose[i].captured && prev.to === verbose[i].to;
+      const legal = new Chess(before.fen).moves().length;
+      if (wTop - wAlt >= 15 && wb > 8 && wb < 92 && !recapture && legal > 1) cls = 'great';
+    }
+    // brillant : bon sacrifice
+    if (['best', 'excellent', 'great'].includes(cls) && wb < 95 && wa >= 40 && isSacrifice(before, after, g.moves[i], mover)) cls = 'brilliant';
+    const label = ['inaccuracy', 'mistake', 'blunder'].includes(cls) ? cls : cls === 'miss' ? (drop >= 20 ? 'blunder' : 'mistake') : null;
+    const loss = Math.max(0, Math.min(1000, cpOf(before.line) + cpOf(after.line)));
+    const entry = {
+      san: sans[i], uci: g.moves[i], cls, label, drop: Math.round(drop * 10) / 10, best,
+      bestSan: best ? pvToSan(before.fen, [best])[0] : null, acc: moveAccuracy(drop), loss: cls === 'book' ? 0 : loss,
+      phase: phaseOf(i, before.fen, opening.plies),
+    };
     if (label === 'blunder' || label === 'mistake') entry.category = categorize(before, after, g.moves[i]);
     moves.push(entry);
   }
-  const acc = { w: avg(moves.filter((_, i) => positions[i].turn === 'w').map(m => m.acc)), b: avg(moves.filter((_, i) => positions[i].turn === 'b').map(m => m.acc)) };
+  const side = s => moves.filter((_, i) => positions[i].turn === s);
+  const acc = { w: avg(side('w').map(m => m.acc)), b: avg(side('b').map(m => m.acc)) };
   const counts = { w: count(moves, positions, 'w'), b: count(moves, positions, 'b') };
-  return { depth, positions, moves, acc, counts, at: Date.now() };
+  const classes = { w: countCls(side('w')), b: countCls(side('b')) };
+  const acpl = {}, estElo = {}, phases = {};
+  for (const s of ['w', 'b']) {
+    const ms = side(s).filter(m => m.cls !== 'book');
+    acpl[s] = ms.length ? Math.round(ms.reduce((t, m) => t + m.loss, 0) / ms.length) : null;
+    estElo[s] = ms.length >= 8 ? eloFromAcpl(acpl[s]) : null;
+    phases[s] = {};
+    for (const ph of ['opening', 'middlegame', 'endgame']) {
+      const p = side(s).filter(m => m.phase === ph);
+      phases[s][ph] = p.length >= 2 ? avg(p.map(m => m.acc)) : null;
+    }
+  }
+  return { v: ANALYSIS_VERSION, depth, positions, moves, acc, counts, classes, acpl, estElo, phases, opening, at: Date.now() };
 }
 
 function avg(a) { return a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null; }
 function count(moves, positions, side) {
   const o = { blunder: 0, mistake: 0, inaccuracy: 0 };
   moves.forEach((m, i) => { if (positions[i].turn === side && m.label) o[m.label]++; });
+  return o;
+}
+function countCls(list) {
+  const o = Object.fromEntries(CLASS_ORDER.map(k => [k, 0]));
+  for (const m of list) o[m.cls]++;
   return o;
 }
 

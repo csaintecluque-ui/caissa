@@ -135,7 +135,7 @@ export function mount(root, params = {}) {
       </div>
     </div>
   </div>`;
-  const board = new Board($('#pz-board', root), { coords: true, onMove: (f, t, p) => onUserMove(f, t, p) });
+  const board = new Board($('#pz-board', root), { onMove: (f, t, p) => onUserMove(f, t, p) });
   state = { root, board, theme, puzzle: null, step: 0, chess: null, failed: false, hinted: 0, done: false, wrongFirst: null };
   $('#pz-themes', root).addEventListener('click', e => {
     const b = e.target.closest('.chip'); if (!b) return;
