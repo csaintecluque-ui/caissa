@@ -572,10 +572,10 @@ async function explainMove(k) {
   const evalTxt = (l, turn) => { const t = formatEval(l, true, turn); return `${t} (point de vue des Blancs)`; };
   try {
     const txt = await askClaude(explainMovePrompt({
-      fen: before.fen, turn: before.turn, side: A.g.you || before.turn,
-      playedSan: sanFr(mv.san), evalAfter: evalTxt(after.line, after.turn), label: CLASSES[mv.cls]?.name || 'coup',
-      bestLine: numberedSan(before.fen, pvToSan(before.fen, before.line.pv || [], 6).map(sanFr)), evalBest: evalTxt(before.line, before.turn),
-      refutation: after.line?.pv?.length ? numberedSan(after.fen, pvToSan(after.fen, after.line.pv, 6).map(sanFr)) : '',
+      fen: before.fen, side: A.g.you || before.turn, played: mv.uci,
+      evalAfter: evalTxt(after.line, after.turn), label: CLASSES[mv.cls]?.name || 'coup',
+      bestPv: before.line.pv || [], evalBest: evalTxt(before.line, before.turn),
+      refutationFen: after.line?.pv?.length ? after.fen : null, refutationPv: after.line?.pv || [],
       category: mv.category ? CATEGORIES[mv.category] : '',
     }));
     box.innerHTML = `<div class="coach">${esc(txt)}</div>`;
@@ -592,8 +592,8 @@ async function explainPosition() {
   const turn = fen.split(' ')[1];
   try {
     const txt = await askClaude(explainPositionPrompt({
-      fen, turn, eval: formatEval(lines[0], true, turn),
-      lines: lines.map(l => `- ${formatEval(l, true, turn)} : ${numberedSan(fen, pvToSan(fen, l.pv, 6).map(sanFr))}`).join('\n'),
+      fen, eval: formatEval(lines[0], true, turn),
+      lines: lines.map(l => ({ eval: formatEval(l, true, turn), pv: l.pv })),
     }));
     box.innerHTML = `<div class="coach">${esc(txt)}</div>`;
   } catch (e) { box.innerHTML = `<div class="coach">${esc(e.message)}</div>`; }

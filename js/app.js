@@ -12,7 +12,7 @@ import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
 import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings } from './ai.js';
 
-export const VERSION = '1.2.1';
+export const VERSION = '1.2.2';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;

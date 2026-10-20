@@ -166,11 +166,11 @@ async function explain(m) {
   const r = await engine.analyse(after.fen(), { depth: 12 });
   try {
     const txt = await askClaude(explainMovePrompt({
-      fen: m.fen, turn, side: turn, playedSan: sanFr(m.playedSan),
+      fen: m.fen, side: turn, played: m.played,
       evalAfter: r?.lines[0] ? formatEval(r.lines[0], true, after.turn()) + ' (point de vue des Blancs)' : 'inconnue',
       label: LABELS[m.label]?.name || 'erreur',
-      bestLine: numberedSan(m.fen, pvToSan(m.fen, m.pv, 6).map(sanFr)), evalBest: 'nettement meilleure',
-      refutation: r?.lines[0]?.pv ? numberedSan(after.fen(), pvToSan(after.fen(), r.lines[0].pv, 6).map(sanFr)) : '',
+      bestPv: m.pv, evalBest: 'nettement meilleure',
+      refutationFen: r?.lines[0]?.pv ? after.fen() : null, refutationPv: r?.lines[0]?.pv || [],
       category: CATEGORIES[m.category],
     }));
     box.innerHTML = `<div class="coach">${esc(txt)}</div>`;

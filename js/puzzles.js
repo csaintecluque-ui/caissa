@@ -238,7 +238,7 @@ async function onUserMove(from, to, promotion) {
   if (!ok) {
     sound('bad');
     s.board.flash(to, 'bad');
-    if (!s.failed) { s.failed = true; s.wrongFirst = sanFr(m.san); const r = record(0); if (r) toast(`Raté — niveau ${r.rating} (${r.delta})`); }
+    if (!s.failed) { s.failed = true; s.wrongFirst = moveToUci(m); const r = record(0); if (r) toast(`Raté — niveau ${r.rating} (${r.delta})`); }
     setStatus('Pas tout à fait… Cherche encore.', 'bad');
     $('#pz-sub', s.root).textContent = `${sanFr(m.san)} ne marche pas. Regarde ce que l'adversaire peut répondre.`;
     setTimeout(() => { if (state === s) s.board.setPosition(s.chess.fen(), { lastMove: lastOf(s), check: checkSquare(s.chess) }); }, 450);
@@ -328,11 +328,9 @@ async function explain() {
   const box = $('#pz-coach', s.root);
   if (!hasKey()) { box.innerHTML = `<div class="coach">Pour une explication rédigée, choisis ton professeur IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).</div>`; return; }
   box.innerHTML = '<div class="coach loading">Caïssa réfléchit…</div>';
-  const start = afterFirst(s.puzzle);
   try {
     const txt = await askClaude(explainPuzzlePrompt({
-      fen: start, turn: start.split(' ')[1],
-      solution: numberedSan(start, pvToSan(start, s.puzzle.moves.slice(1), 12).map(sanFr)),
+      fen: s.puzzle.fen, moves: s.puzzle.moves,
       themes: s.puzzle.themes.filter(t => THEMES[t]).map(t => THEMES[t]).join(', '),
       wrong: s.wrongFirst,
     }));
