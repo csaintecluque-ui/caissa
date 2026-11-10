@@ -35,8 +35,9 @@
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; touch-action: manipulation; }
 html, body { margin: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.45;
   -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none;
@@ -109,9 +110,9 @@ main { max-width: 1120px; margin: 0 auto; padding: 14px 16px calc(var(--nav-h) +
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 label.field { display: block; font-size: 13px; color: var(--text-2); font-weight: 600; }
 label.field input, label.field select, textarea {
-  display: block; width: 100%; margin-top: 5px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 15px; color: var(--text);
+  display: block; width: 100%; margin-top: 5px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; color: var(--text);
 }
-textarea { min-height: 120px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+textarea { min-height: 120px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 16px; }
 .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .switch:last-child { border-bottom: 0; }
 .switch input { width: 46px; height: 26px; appearance: none; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--line); position: relative; cursor: pointer; flex: none; transition: background .15s; }
@@ -159,8 +160,9 @@ details.lesson ul { padding-left: 18px; }
   .split { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
   .split .side { position: sticky; top: 76px; }
 }
-.board-col { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
-.board-area { display: flex; gap: 6px; width: min(100%, 620px, max(280px, calc(100dvh - 250px))); }
+.board-col { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%;
+  --bw: min(100%, 680px, max(280px, calc(100dvh - 250px))); }
+.board-area { display: flex; gap: 6px; width: var(--bw); }
 .board-wrap { flex: 1; min-width: 0; }
 
 .board { position: relative; width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
@@ -220,7 +222,7 @@ details.lesson ul { padding-left: 18px; }
 .evalbar.flipped i { bottom: auto; top: 0; }
 .evalbar span { position: absolute; left: 0; right: 0; text-align: center; font-size: 8px; font-weight: 800; writing-mode: vertical-rl; transform: rotate(180deg); }
 
-.player { display: flex; align-items: center; gap: 8px; width: min(100%, 620px, max(280px, calc(100dvh - 250px))); font-weight: 600; font-size: 14px; }
+.player { display: flex; align-items: center; gap: 8px; width: var(--bw); font-weight: 600; font-size: 14px; }
 .player .name { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .player .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player .captured { font-size: 12px; color: var(--text-2); font-weight: 500; }
@@ -343,7 +345,29 @@ details.lesson ul { padding-left: 18px; }
 .prov.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .prov span:first-child { display: flex; flex-direction: column; min-width: 0; }
 .prov small { color: var(--text-2); font-size: 12px; line-height: 1.35; }
-.ai-input { display: block; width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 15px; color: var(--text); }
+.ai-input { display: block; width: 100%; margin-top: 6px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; color: var(--text); }
 .fb { border-radius: 10px; padding: 9px 12px; font-size: 13.5px; }
 .fb.info { background: var(--accent-soft); }
 .fb.ko { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--text); }
+
+/* --- grand échiquier ------------------------------------------------------------
+   Actif seulement sur les écrans qui contiennent un échiquier : la barre du haut et
+   les onglets disparaissent, l'échiquier prend toute la largeur (ou toute la hauteur). */
+#btn-focus, .focus-exit { display: none; }
+body:has(#view .board) #btn-focus { display: grid; }
+html.focus body:has(#view .board) .topbar,
+html.focus body:has(#view .board) .tabbar { display: none; }
+html.focus body:has(#view .board) main {
+  max-width: none; padding: calc(env(safe-area-inset-top) + 6px) 4px calc(76px + env(safe-area-inset-bottom));
+}
+html.focus .board-col { --bw: min(100%, max(280px, calc(100dvh - 150px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))); gap: 6px; }
+html.focus .player { padding: 0 4px; }
+html.focus .board { border-radius: 2px; }
+html.focus body:has(#view .board) .split .side { top: calc(env(safe-area-inset-top) + 6px); }
+html.focus body:has(#view .board) .focus-exit {
+  display: grid; place-items: center; position: fixed; z-index: 40; right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom));
+  width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: var(--shadow); color: var(--text); cursor: pointer;
+}
+.focus-exit svg { width: 22px; height: 22px; }
+html.focus .toast { bottom: calc(76px + env(safe-area-inset-bottom)); }

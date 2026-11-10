@@ -12,6 +12,12 @@ Application web installable (PWA) pour progresser aux échecs : problèmes adapt
 - **Carnet d'erreurs** : tes erreurs deviennent des exercices, révisés à intervalles croissants (1, 3, 7, 16, 35 jours), avec des statistiques sur ce qui te coûte le plus de points.
 - **Professeur IA** (optionnel, comme dans Tengen) : Claude, ChatGPT, Gemini, Grok, OpenRouter ou service compatible OpenAI, avec ta propre clé et le modèle de ton choix (liste des modèles disponibles). Bouton « Expliquer » sur les problèmes, les coups et les positions. Les clés restent sur l'appareil.
 
+## Grand échiquier
+
+Sur les écrans avec un échiquier, le bouton ⤢ en haut à droite masque la barre du haut et les onglets : l'échiquier prend toute la largeur du téléphone (ou toute la hauteur sur tablette en paysage). Le bouton rond en bas à droite revient à l'affichage normal. Le choix est mémorisé.
+
+Le zoom involontaire (double-tap, pincement) est bloqué dans toute l'appli.
+
 ## Noms des cases
 
 Réglages ⚙︎ → *Noms des cases* : sur les bords, sur chaque case, ou masqués.

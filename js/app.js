@@ -12,7 +12,7 @@ import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
 import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings } from './ai.js';
 
-export const VERSION = '1.2.2';
+export const VERSION = '1.3.0';
 
 const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -291,12 +291,43 @@ const ICONS = {
   analyse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M4 16l4-5 4 3 4-7 4 4"/></svg>',
   book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h10a4 4 0 014 4v12H8a4 4 0 01-4-4z"/><path d="M8 20a2 2 0 01-2-2V4"/><path d="M10 9h5M10 13h5"/></svg>',
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
+  expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+  shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
 };
+
+// --- pas de zoom involontaire ------------------------------------------------------------
+// Le pincement (iOS : événements « gesture* »), le double-tap et Ctrl + molette ne zooment plus.
+function blockZoom() {
+  const stop = e => e.preventDefault();
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, stop, { passive: false }));
+  document.addEventListener('touchmove', e => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+  document.addEventListener('dblclick', stop, { passive: false });
+  window.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+  document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault(); });
+}
+
+// --- grand échiquier ---------------------------------------------------------------------
+function applyFocus(on) {
+  document.documentElement.classList.toggle('focus', on);
+  $('#btn-focus').setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+function toggleFocus() {
+  const on = !store.get('focus', false);
+  store.set('focus', on);
+  applyFocus(on);
+  window.scrollTo(0, 0);
+}
 
 // --- démarrage --------------------------------------------------------------------------
 function boot() {
   applyTheme();
+  blockZoom();
+  $('#btn-focus').innerHTML = ICONS.expand;
+  $('#btn-focus').onclick = toggleFocus;
+  $('#btn-focus-exit').innerHTML = ICONS.shrink;
+  $('#btn-focus-exit').onclick = toggleFocus;
+  applyFocus(store.get('focus', false));
   $('#tabs').innerHTML = `<div class="tabbar-in">
     <a class="tab" data-r="" href="#/">${ICONS.home}Accueil</a>
     <a class="tab" data-r="problemes" href="#/problemes">${ICONS.puzzle}Problèmes</a>
