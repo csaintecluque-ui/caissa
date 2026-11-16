@@ -1,5 +1,5 @@
 // Service worker : l'appli et Stockfish fonctionnent hors ligne après la première visite.
-const CACHE = 'caissa-v1.5.1';
+const CACHE = 'caissa-v1.5.2';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/pieces.css',
@@ -13,7 +13,8 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // « reload » : on contourne le cache du navigateur, sinon une nouvelle version peut être installée avec d'anciens fichiers
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -23,9 +24,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return; // Lichess, Chess.com, Claude : réseau direct
+  if (url.pathname.endsWith('/sw.js')) return; // jamais en cache : c'est lui qui annonce les nouvelles versions
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(hit => {
-      const net = fetch(e.request).then(res => {
+      const net = fetch(e.request.url, { cache: 'no-cache' }).then(res => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
         return res;
       }).catch(() => hit);

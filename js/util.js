@@ -99,6 +99,15 @@ export function moveSound(m, chess) {
   else sound('move');
 }
 
+/** Ramène l'échiquier à l'écran s'il est passé sous la barre du haut (avant de montrer un coup). */
+export function montrerEchiquier(el) {
+  if (!el) return;
+  const bar = document.querySelector('.topbar');
+  const top = bar && getComputedStyle(bar).display !== 'none' ? bar.getBoundingClientRect().bottom : 0;
+  const r = el.getBoundingClientRect();
+  if (r.top < top - 2 || r.top > window.innerHeight * 0.5) window.scrollTo({ top: Math.max(0, window.scrollY + r.top - top - 8), behavior: 'smooth' });
+}
+
 // --- interface : toasts et fenêtres ----------------------------------------
 export function toast(msg, ms = 2600) {
   const t = document.createElement('div');

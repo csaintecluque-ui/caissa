@@ -1,7 +1,7 @@
 // Carnet d'erreurs : tes gaffes et erreurs en partie deviennent des exercices,
 // révisés à intervalles croissants (1, 3, 7, 16, 35 jours).
 import { Board } from './board.js';
-import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, sanFr, pvToSan, numberedSan, fmtDate } from './util.js';
+import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, sanFr, pvToSan, numberedSan, fmtDate, montrerEchiquier } from './util.js';
 import { engine, lineWin, formatEval } from './engine.js';
 import { listMistakes, dueMistakes, reviewMistake, weaknessStats, CATEGORIES, LABELS, saveMistakes } from './games.js';
 import { askClaude, explainMovePrompt, hasKey } from './coach.js';
@@ -141,6 +141,7 @@ async function attempt(from, to, promotion) {
 function conclude(success, san, note) {
   const n = N, m = n.cur;
   n.answered = true;
+  if (!success) montrerEchiquier(n.board.el);
   n.done++; if (success) n.ok++;
   reviewMistake(m.id, success);
   sound(success ? 'good' : 'bad');

@@ -1,7 +1,7 @@
 // Problèmes : base hors ligne générée avec Stockfish + puzzles Lichess (en ligne),
 // classement adaptatif type Elo.
 import { Board } from './board.js';
-import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, sanFr, pvToSan, numberedSan } from './util.js';
+import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, sanFr, pvToSan, numberedSan, montrerEchiquier } from './util.js';
 import { store } from './store.js';
 import { askClaude, explainPuzzlePrompt, hasKey } from './coach.js';
 import { noterThemes } from './niveaux.js';
@@ -313,6 +313,7 @@ function hint() {
   if (s.done || s.step === 0) return;
   const exp = s.puzzle.moves[s.step];
   s.hinted++;
+  montrerEchiquier(s.board.el);
   if (s.hinted === 1) {
     s.board.setMarks({ [exp.slice(0, 2)]: 'hint' });
     s.board.flash(exp.slice(0, 2), 'good');
@@ -328,10 +329,15 @@ async function showSolution() {
   if (s.done) return;
   if (!s.failed) { s.failed = true; record(0); }
   s.board.setMovable(null);
+  s.board.setArrows([]); s.board.setMarks({});
+  montrerEchiquier(s.board.el);
+  await new Promise(r => setTimeout(r, 600));
   while (state === s && s.step < s.puzzle.moves.length) {
+    const mine = s.chess.turn() === s.solver;
     const m = uciToMove(s.chess, s.puzzle.moves[s.step]);
     s.step++;
     s.board.setPosition(s.chess.fen(), { lastMove: [m.from, m.to], check: checkSquare(s.chess) });
+    if (mine) s.board.setArrows([{ from: m.from, to: m.to, kind: 'best' }]);
     moveSound(m, s.chess);
     await new Promise(r => setTimeout(r, 700));
   }

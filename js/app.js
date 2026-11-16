@@ -16,7 +16,7 @@ import { playerRating, setInitialElo } from './rating.js';
 import { usageTexte } from './prof.js';
 import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings, configuredProviders } from './ai.js';
 
-export const VERSION = '1.5.1';
+export const VERSION = '1.5.2';
 
 const ROUTES = { '': home(), cours, problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -162,7 +162,8 @@ function openSettings() {
       </div>
       <div><b>Sauvegarde</b><p class="muted small" style="margin:4px 0 8px">Tes données sont stockées sur cet appareil. Exporte-les pour les transférer ou les mettre à l'abri.</p>
         <div class="row"><button class="btn sm" id="st-export">Exporter</button><label class="btn sm">Importer<input type="file" id="st-import" accept="application/json" hidden></label><button class="btn sm danger" id="st-reset">Tout effacer</button></div></div>
-      <p class="muted small" style="margin:0">Caïssa ${VERSION} · Moteur Stockfish 19 (GPL v3) · personnages humains Maia, CSSLab Université de Toronto (GPL v3) · pièces cburnett · problèmes Lichess (CC0) et générés par Stockfish.</p>
+      <div class="row between"><b>Caïssa ${VERSION}</b><button class="btn sm" id="st-maj">Rechercher une mise à jour</button></div>
+      <p class="muted small" style="margin:0">Moteur Stockfish 19 (GPL v3) · personnages humains Maia, CSSLab Université de Toronto (GPL v3) · pièces cburnett · problèmes Lichess (CC0) et générés par Stockfish.</p>
       <div class="row end"><button class="btn ghost" data-close>Annuler</button><button class="btn primary" id="st-save">Enregistrer</button></div>
     </div>`, {
     onMount: (m, close) => {
@@ -184,6 +185,7 @@ function openSettings() {
         close(); toast('Réglages enregistrés.'); route();
       };
       $('#st-ai', m).onclick = () => openAISettings(() => { $('#st-ai-name', m).textContent = aiLigne(); document.dispatchEvent(new CustomEvent('caissa:ai-changed')); });
+      $('#st-maj', m).onclick = e => chercherMaj(e.currentTarget);
       $('#st-export', m).onclick = () => {
         const data = store.exportAll();
         if (data.settings) data.settings = { ...data.settings, apiKey: '', ai: data.settings.ai ? { ...data.settings.ai, keys: {} } : undefined };
@@ -357,6 +359,32 @@ function toggleFocus() {
   window.scrollTo(0, 0);
 }
 
+// --- mises à jour ------------------------------------------------------------------------
+function annoncerMaj() {
+  if ($('.maj')) return;
+  const b = document.createElement('div');
+  b.className = 'maj';
+  b.innerHTML = '<span>Nouvelle version de Caïssa prête.</span><button class="btn sm primary">Mettre à jour</button>';
+  b.querySelector('button').onclick = () => location.reload();
+  document.body.appendChild(b);
+}
+async function chercherMaj(btn) {
+  btn.disabled = true; btn.textContent = 'Recherche…';
+  try {
+    const txt = await (await fetch('sw.js', { cache: 'no-store' })).text();
+    const v = txt.match(/caissa-v([\d.]+)/)?.[1];
+    if (!v || v === VERSION) { toast('Tu as déjà la dernière version.'); btn.disabled = false; btn.textContent = 'Rechercher une mise à jour'; return; }
+    btn.textContent = `Installation de la ${v}…`;
+    // on recharge les fichiers de l'appli sans passer par le cache du navigateur, on vide l'ancien cache, puis on redémarre
+    const files = ['./', 'index.html', ...[...txt.matchAll(/'((?:js|css)\/[^']+)'/g)].map(x => x[1])];
+    await Promise.all(files.map(f => fetch(f, { cache: 'reload' }).catch(() => null)));
+    if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.filter(k => k.startsWith('caissa-')).map(k => caches.delete(k))); }
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.unregister();
+    location.reload();
+  } catch { toast('Impossible de vérifier : es-tu connecté ?'); btn.disabled = false; btn.textContent = 'Rechercher une mise à jour'; }
+}
+
 // --- démarrage --------------------------------------------------------------------------
 function boot() {
   applyTheme();
@@ -382,7 +410,13 @@ function boot() {
   // le moteur démarre en arrière-plan pour être prêt plus vite
   setTimeout(() => engine.start().catch(e => { console.error(e); toast('Le moteur Stockfish n\'a pas pu démarrer sur cet appareil.', 5000); }), 300);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    let dejaInstallee = !!navigator.serviceWorker.controller;
+    let reg = null;
+    navigator.serviceWorker.register('sw.js').then(r => { reg = r; }).catch(() => {});
+    // une nouvelle version vient de s'installer en arrière-plan : on le dit, sans interrompre une partie ou une leçon
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (dejaInstallee) annoncerMaj(); dejaInstallee = true; });
+    // à chaque retour dans l'appli, on vérifie s'il y a du nouveau
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg?.update().catch(() => {}); });
   }
 }
 

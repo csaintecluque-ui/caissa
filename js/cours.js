@@ -1,7 +1,7 @@
 // Cours : l'objectif Elo et ses leviers, la séance du jour, les ateliers par thème, le programme
 // de base, le lecteur de leçon interactif, les contrôles, le carnet de l'élève et les cours particuliers.
 import { Board } from './board.js';
-import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, sanFr, pvToSan, numberedSan, fmtDate } from './util.js';
+import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, sanFr, pvToSan, numberedSan, fmtDate, montrerEchiquier } from './util.js';
 import { engine, lineWin } from './engine.js';
 import { MODULES, leconById, START } from './cours-data.js';
 import { etatLecon, positionLecon, noterPosition, noterControle, aReviser, recommandation, prof, saveProf, supprimerNote, bilanEleve, SEUIL } from './eleve.js';
@@ -438,6 +438,7 @@ function startDemo() {
   actions([['play', '▶ Voir la suite', 'primary']]);
   async function playDemo() {
     const tok = ++l.token, cur = l.cur;
+    montrerEchiquier(l.board.el);
     cur.chess = new Chess(fenOf(s));
     l.board.setArrows([]); l.board.setMarks({});
     l.board.setPosition(cur.chess.fen(), { animate: false });
@@ -485,6 +486,7 @@ function hint() {
   if (cur.done) return;
   const exp = s.sol[cur.i]; if (!exp) return;
   cur.hinted++; cur.failed = true;
+  montrerEchiquier(l.board.el);
   if (cur.hinted === 1 && s.indice) { setFb(esc(s.indice), 'info'); return; }
   if (cur.hinted <= 2) { l.board.setMarks({ [exp.slice(0, 2)]: 'hint' }); setFb('La pièce à jouer est en surbrillance.', 'info'); return; }
   l.board.setArrows([{ from: exp.slice(0, 2), to: exp.slice(2, 4), kind: 'hint' }]);
@@ -493,19 +495,34 @@ async function revealSolution(byUser) {
   const l = L, s = l.steps[l.idx], cur = l.cur, tok = l.token;
   if (cur.done || cur.busy) return;
   cur.busy = true; cur.failed = true;
-  l.board.setMovable(null); l.board.setArrows([]); l.board.setMarks({});
+  l.board.setMovable(null);
   const startFen = cur.chess.fen(), rest = s.sol.slice(cur.i);
-  l.board.setPosition(startFen, { check: checkSquare(cur.chess) });
-  for (const u of rest) {
-    await wait(700);
-    if (!L || l.token !== tok) return;
-    const m = uciToMove(cur.chess, u); if (!m) break;
-    l.board.setPosition(cur.chess.fen(), { lastMove: [m.from, m.to], check: checkSquare(cur.chess) });
-    moveSound(m, cur.chess);
-  }
+  if (!await jouerLigne(startFen, rest, tok)) return;
   cur.busy = false;
+  cur.extraDone = [['replay', 'Revoir la solution']];
+  l.handlers.replay = async () => { if (cur.busy) return; cur.busy = true; await jouerLigne(startFen, rest, l.token); cur.busy = false; };
   const line = esc(numberedSan(startFen, pvToSan(startFen, rest, 12).map(sanFr)));
   done(false, `${byUser ? 'La solution' : 'Il fallait jouer'} : <b>${line}</b>${s.ok ? `<div style="margin-top:4px">${s.ok}</div>` : ''}`, 'info');
+}
+
+/** Joue une suite de coups sur l'échiquier, lentement, en laissant une flèche sur le coup de l'élève. */
+async function jouerLigne(fen, ucis, tok) {
+  const l = L, cur = l.cur;
+  const c = new Chess(fen);
+  montrerEchiquier(l.board.el);
+  l.board.setArrows([]); l.board.setMarks({});
+  l.board.setPosition(fen, { check: checkSquare(c), animate: false });
+  for (const u of ucis) {
+    await wait(900);
+    if (L !== l || l.token !== tok) return false;
+    const mine = c.turn() === cur.side;
+    const m = uciToMove(c, u); if (!m) break;
+    l.board.setPosition(c.fen(), { lastMove: [m.from, m.to], check: checkSquare(c) });
+    moveSound(m, c);
+    if (mine) l.board.setArrows([{ from: m.from, to: m.to, kind: 'best' }]);
+  }
+  cur.chess = c;
+  return true;
 }
 
 async function onMove(from, to, promotion) {
@@ -605,6 +622,7 @@ function startCase() {
   actions(l.mode === 'controle' ? [] : [['hint', 'Indice'], ['sol', 'Solution', 'ghost']]);
   const marks = () => Object.fromEntries([...cur.found].map(sq => [sq, 'good']));
   function reveal(success) {
+    if (!success) montrerEchiquier(l.board.el);
     l.board.setMarks(Object.fromEntries(s.cases.map(sq => [sq, success || cur.found.has(sq) ? 'good' : 'hint'])));
     done(success, success ? `<b>Exact.</b> ${s.ok || ''}` : `La réponse : <b>${s.cases.join(', ')}</b>. ${s.ok || ''}`, success ? 'ok' : 'info');
   }
@@ -655,6 +673,7 @@ function startPartie() {
     hint: async () => {
       if (cur.done || cur.busy || cur.chess.turn() !== cur.side) return;
       cur.failed = true;
+      montrerEchiquier(l.board.el);
       const r = await engine.analyse(cur.chess.fen(), { depth: 14 });
       if (r?.best && L === l && !cur.done) l.board.setArrows([{ from: r.best.slice(0, 2), to: r.best.slice(2, 4), kind: 'hint' }]);
     },
