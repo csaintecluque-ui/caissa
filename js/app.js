@@ -14,9 +14,9 @@ import { advice } from './notebook.js';
 import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
 import { usageTexte } from './prof.js';
-import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings } from './ai.js';
+import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings, configuredProviders } from './ai.js';
 
-export const VERSION = '1.5.0';
+export const VERSION = '1.5.1';
 
 const ROUTES = { '': home(), cours, problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -139,8 +139,8 @@ function openSettings() {
       <label class="field">Ton prénom<input id="st-name" value="${esc(s.playerName && s.playerName !== 'Moi' ? s.playerName : '')}" placeholder="Moi"></label>
       <div class="card" style="box-shadow:none">
         <div class="row between" style="flex-wrap:nowrap"><div style="min-width:0"><b>Professeur IA</b>
-          <p class="muted small" style="margin:2px 0 0" id="st-ai-name">${hasKey() ? esc(aiName()) : 'Pas encore configuré'}</p></div>
-          <button class="btn sm" id="st-ai">Configurer</button></div>
+          <p class="muted small" style="margin:2px 0 0" id="st-ai-name">${esc(aiLigne())}</p></div>
+          <button class="btn sm" id="st-ai">${configuredProviders().length > 1 ? 'Changer d\'IA' : 'Configurer'}</button></div>
         <p class="muted small" style="margin:6px 0 0">Claude, ChatGPT, Gemini, Grok, OpenRouter… comme dans Tengen. Il anime les cours, débriefe tes parties, prépare tes cours particuliers et répond à tes questions.</p>
         <p class="muted tiny" style="margin:4px 0 0">${esc(usageTexte())}</p>
       </div>
@@ -183,7 +183,7 @@ function openSettings() {
         const th = segv('#st-theme'); store.set('theme', th); applyTheme();
         close(); toast('Réglages enregistrés.'); route();
       };
-      $('#st-ai', m).onclick = () => openAISettings(() => { $('#st-ai-name', m).textContent = hasKey() ? aiName() : 'Pas encore configuré'; });
+      $('#st-ai', m).onclick = () => openAISettings(() => { $('#st-ai-name', m).textContent = aiLigne(); document.dispatchEvent(new CustomEvent('caissa:ai-changed')); });
       $('#st-export', m).onclick = () => {
         const data = store.exportAll();
         if (data.settings) data.settings = { ...data.settings, apiKey: '', ai: data.settings.ai ? { ...data.settings.ai, keys: {} } : undefined };
@@ -215,36 +215,48 @@ function openSettings() {
 }
 
 // --- professeur IA (même fonctionnement que Tengen) -------------------------------------
+function aiLigne() {
+  const n = configuredProviders().length;
+  return hasKey() ? `${aiName()}${n > 1 ? ` · ${n} clés enregistrées` : ''}` : n ? 'Choisis l\'IA à utiliser' : 'Pas encore configuré';
+}
 function openAISettings(onDone) {
   let ai = aiSettings();
-  let key = ai.keys[ai.provider] || '', model = ai.models[ai.provider] || providerById(ai.provider).defaultModel, base = ai.customBase || '';
+  let edit = ai.provider; // fournisseur dont on saisit la clé (pas forcément celui qui est utilisé)
+  let key = ai.keys[edit] || '', model = ai.models[edit] || providerById(edit).defaultModel, base = ai.customBase || '';
   let models = null, filter = '', show = false, msg = null;
   const tg = tengenAiSettings();
+  const done = () => { onDone?.(); };
   modal('<div id="ai-root"></div>', { wide: true, onMount: (m, close) => {
     const root = $('#ai-root', m);
     const choose = id => {
-      ai.provider = id;
+      edit = id;
       key = ai.keys[id] || ''; model = ai.models[id] || providerById(id).defaultModel; models = null; filter = ''; msg = null;
       render();
     };
-    const save = () => {
-      ai = { ...ai, keys: { ...ai.keys, [ai.provider]: cleanKey(key) }, models: { ...ai.models, [ai.provider]: model.trim() }, customBase: base.trim() };
+    // enregistre la clé et le modèle saisis ; use = en faire l'IA utilisée
+    const save = use => {
+      ai = { ...ai, keys: { ...ai.keys, [edit]: cleanKey(key) }, models: { ...ai.models, [edit]: model.trim() }, customBase: base.trim() };
       saveAiSettings(ai);
+      if (use || !configuredProviders().includes(ai.provider)) { ai.provider = configuredProviders().includes(edit) ? edit : (configuredProviders()[0] || edit); saveAiSettings(ai); }
     };
     const render = () => {
-      const pv = providerById(ai.provider);
+      const pv = providerById(edit);
+      const prets = configuredProviders();
+      const autreActif = prets.includes(ai.provider) && ai.provider !== edit;
       const shown = (models || []).filter(x => !filter || x.toLowerCase().includes(filter.toLowerCase())).slice(0, 60);
       root.innerHTML = `
         <h3>Professeur IA</h3>
-        <p class="small muted" style="margin:0 0 10px">Avec une clé API, une IA devient ton professeur : elle répond pendant les leçons, débriefe tes parties, bâtit des cours sur tes erreurs et rédige ton bulletin. Elle s'appuie toujours sur Stockfish, jamais sur son propre calcul. Les clés sont enregistrées <b>uniquement sur cet appareil</b> et ne servent qu'à appeler directement le fournisseur choisi. Les API sont facturées à part des abonnements (ChatGPT Plus, Claude Pro…) : crée une clé dédiée avec un plafond de dépenses.</p>
+        <p class="small muted" style="margin:0 0 10px">Avec une clé API, une IA devient ton professeur : elle répond pendant les leçons, débriefe tes parties, bâtit des cours sur tes erreurs et rédige ton bulletin. Elle s'appuie toujours sur Stockfish, jamais sur son propre calcul. Tu peux enregistrer <b>plusieurs clés</b> et choisir à tout moment laquelle utiliser. Les clés restent <b>uniquement sur cet appareil</b>.</p>
+        ${prets.length ? `<b class="small">IA utilisée par le professeur</b>
+          <div class="prov-list" style="margin-bottom:14px">${prets.map(id => `<button class="prov ${ai.provider === id ? 'on' : ''}" data-use="${id}"><span><b>${providerById(id).name}</b><small>${esc(aiName(id).split(' · ').slice(1).join(' · ') || ai.models[id] || '')}</small></span>${ai.provider === id ? '<span class="badge good">Utilisée</span>' : '<span class="badge">Utiliser</span>'}</button>`).join('')}</div>` : ''}
         ${tg ? `<div class="card" style="box-shadow:none;margin-bottom:10px"><div class="row between"><span class="small">Tes réglages d'IA de <b>Tengen</b> sont disponibles ici.</span><button class="btn sm primary" id="ai-tg">Reprendre</button></div></div>` : ''}
-        <b class="small">Fournisseur</b>
-        <div class="prov-list">${PROVIDERS.map(p => `<button class="prov ${ai.provider === p.id ? 'on' : ''}" data-p="${p.id}"><span><b>${p.name}</b><small>${p.brand} · ${esc(p.note)}</small></span>${ai.provider === p.id ? '<span class="badge">Choisi</span>' : ai.keys[p.id] ? '<span class="badge good">Clé enregistrée</span>' : ''}</button>`).join('')}</div>
+        <b class="small">${prets.length ? 'Ajouter ou modifier une clé' : 'Fournisseur'}</b>
+        <div class="prov-list">${PROVIDERS.map(p => `<button class="prov ${edit === p.id ? 'on' : ''}" data-p="${p.id}"><span><b>${p.name}</b><small>${p.brand} · ${esc(p.note)}</small></span>${ai.keys[p.id] ? '<span class="badge good">Clé enregistrée</span>' : ''}</button>`).join('')}</div>
         ${pv.id === 'custom' ? `<label class="field" style="margin-top:10px">Adresse du service (https)<input id="ai-base" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://mon-service.example/v1" value="${esc(base)}"></label>` : ''}
         <label class="field" style="margin-top:10px">Clé API ${pv.name}${pv.console ? ` <span class="muted">· à créer sur ${pv.console}</span>` : ''}
           <span class="row" style="flex-wrap:nowrap;margin-top:5px"><input id="ai-key" type="${show ? 'text' : 'password'}" autocomplete="off" spellcheck="false" placeholder="${pv.keyHint}" value="${esc(key)}" style="margin:0"><button class="btn sm" id="ai-show" type="button">${show ? 'Masquer' : 'Voir'}</button></span></label>
         <div id="ai-guess"></div>
-        <div style="margin-top:10px"><b class="small">Modèle</b>
+        <div style="margin-top:10px"><b class="small">Modèle ${pv.name}</b>
           ${pv.suggested.length ? `<div class="chips" style="margin-top:6px">${pv.suggested.map(x => `<button class="chip ${model === x.id ? 'on' : ''}" data-m="${esc(x.id)}">${esc(x.label)}</button>`).join('')}</div>` : ''}
           <input id="ai-model" class="ai-input" autocomplete="off" spellcheck="false" placeholder="nom exact du modèle" value="${esc(model)}">
           <button class="btn sm" id="ai-list" style="margin-top:6px" ${!key.trim() && pv.id !== 'openrouter' && pv.id !== 'custom' ? 'disabled' : ''}>Voir les modèles disponibles</button>
@@ -252,16 +264,19 @@ function openAISettings(onDone) {
             <div class="list" style="max-height:240px;overflow:auto;margin-top:6px">${shown.map(x => `<div class="list-item" data-pick="${esc(x)}"><span class="grow t" style="word-break:break-all;white-space:normal">${esc(x)}</span>${model === x ? '<span class="badge">Choisi</span>' : ''}</div>`).join('')}</div>` : ''}
         </div>
         <div class="row" style="margin-top:12px">
-          <button class="btn primary" id="ai-save">Enregistrer</button>
+          <button class="btn primary" id="ai-save">${autreActif ? `Enregistrer et utiliser ${pv.name}` : 'Enregistrer'}</button>
+          ${autreActif ? '<button class="btn" id="ai-keep">Enregistrer seulement</button>' : ''}
           <button class="btn" id="ai-test">Tester</button>
-          ${ai.keys[ai.provider] ? '<button class="btn danger" id="ai-del">Supprimer la clé</button>' : ''}
+          ${ai.keys[edit] ? '<button class="btn danger" id="ai-del">Supprimer la clé</button>' : ''}
           <button class="btn ghost" data-close>Fermer</button>
         </div>
+        ${autreActif ? `<p class="tiny muted" style="margin:6px 0 0">« Enregistrer seulement » garde ${providerById(ai.provider).name} comme IA utilisée.</p>` : ''}
         ${msg ? `<div class="fb ${msg.ok ? 'info' : 'ko'}" style="margin-top:10px">${esc(msg.text)}</div>` : ''}`;
+      root.querySelectorAll('[data-use]').forEach(b => b.onclick = () => { ai.provider = b.dataset.use; saveAiSettings(ai); msg = { ok: true, text: `Le professeur utilise maintenant ${aiName()}.` }; render(); });
       root.querySelectorAll('[data-p]').forEach(b => b.onclick = () => choose(b.dataset.p));
       root.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { model = b.dataset.m; render(); });
       root.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { model = b.dataset.pick; render(); });
-      root.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { close(); onDone?.(); });
+      root.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { close(); done(); });
       const ki = $('#ai-key', root);
       const updateGuess = () => {
         const g = guessProvider(key), box = $('#ai-guess', root);
@@ -274,22 +289,27 @@ function openAISettings(onDone) {
       const bi = $('#ai-base', root); if (bi) bi.oninput = () => { base = bi.value; };
       const fi = $('#ai-filter', root); if (fi) fi.oninput = () => { filter = fi.value; const pos = fi.selectionStart; render(); const f2 = $('#ai-filter', root); f2.focus(); f2.setSelectionRange(pos, pos); };
       $('#ai-show', root).onclick = () => { show = !show; render(); };
-      const tgb = $('#ai-tg', root); if (tgb) tgb.onclick = () => { ai = { ...ai, provider: tg.provider, keys: { ...ai.keys, ...Object.fromEntries(Object.entries(tg.keys).filter(([, v]) => v)) }, models: { ...ai.models, ...tg.models }, customBase: tg.customBase || ai.customBase }; key = ai.keys[ai.provider] || ''; model = ai.models[ai.provider] || providerById(ai.provider).defaultModel; base = ai.customBase || ''; saveAiSettings(ai); msg = { ok: true, text: 'Réglages de Tengen repris. Touche « Tester » pour vérifier.' }; render(); };
+      const tgb = $('#ai-tg', root); if (tgb) tgb.onclick = () => { ai = { ...ai, provider: tg.provider, keys: { ...ai.keys, ...Object.fromEntries(Object.entries(tg.keys).filter(([, v]) => v)) }, models: { ...ai.models, ...tg.models }, customBase: tg.customBase || ai.customBase }; edit = ai.provider; key = ai.keys[edit] || ''; model = ai.models[edit] || providerById(edit).defaultModel; base = ai.customBase || ''; saveAiSettings(ai); msg = { ok: true, text: 'Réglages de Tengen repris. Touche « Tester » pour vérifier.' }; render(); };
       updateGuess();
       $('#ai-list', root).onclick = async () => {
         msg = { ok: true, text: 'Chargement des modèles…' }; render();
-        try { models = await listModels(ai.provider, cleanKey(key), base); msg = { ok: true, text: `${models.length} modèles disponibles. Choisis-en un.` }; }
+        try { models = await listModels(edit, cleanKey(key), base); msg = { ok: true, text: `${models.length} modèles disponibles. Choisis-en un.` }; }
         catch (e) { msg = { ok: false, text: e.message }; }
         render();
       };
-      $('#ai-save', root).onclick = () => { save(); toast('Professeur IA enregistré sur l\'appareil.'); close(); onDone?.(); };
+      $('#ai-save', root).onclick = () => { save(true); toast(`Le professeur utilise ${aiName()}.`); close(); done(); };
+      const keep = $('#ai-keep', root); if (keep) keep.onclick = () => { save(false); msg = { ok: true, text: `Clé ${pv.name} enregistrée. Le professeur utilise toujours ${aiName()}.` }; render(); };
       $('#ai-test', root).onclick = async () => {
-        save(); msg = { ok: true, text: 'Test en cours…' }; render();
-        try { const t = await testAI(); msg = { ok: true, text: `${providerById(ai.provider).name} répond : ${t}` }; }
+        save(false); msg = { ok: true, text: `Test de ${pv.name} en cours…` }; render();
+        try { const t = await testAI(edit); msg = { ok: true, text: `${pv.name} répond : ${t}` }; }
         catch (e) { msg = { ok: false, text: e.message }; }
         render();
       };
-      const del = $('#ai-del', root); if (del) del.onclick = () => { key = ''; ai = { ...ai, keys: { ...ai.keys, [ai.provider]: '' } }; saveAiSettings(ai); msg = { ok: true, text: 'Clé supprimée.' }; render(); };
+      const del = $('#ai-del', root); if (del) del.onclick = () => {
+        key = ''; ai = { ...ai, keys: { ...ai.keys, [edit]: '' } }; saveAiSettings(ai);
+        if (ai.provider === edit && configuredProviders().length) { ai.provider = configuredProviders()[0]; saveAiSettings(ai); }
+        msg = { ok: true, text: `Clé ${pv.name} supprimée.${hasKey() ? ` Le professeur utilise ${aiName()}.` : ''}` }; render();
+      };
     };
     render();
   } });
@@ -355,7 +375,8 @@ function boot() {
     <a class="tab" data-r="carnet" href="#/carnet">${ICONS.book}Carnet</a></div>`;
   $('#btn-settings').innerHTML = ICONS.gear;
   $('#btn-settings').onclick = openSettings;
-  document.addEventListener('caissa:ai-settings', () => openAISettings(() => route()));
+  // ouvert depuis une leçon, une analyse ou une partie : on ne recharge pas l'écran, on prévient seulement que l'IA a changé
+  document.addEventListener('caissa:ai-settings', () => openAISettings(() => document.dispatchEvent(new CustomEvent('caissa:ai-changed'))));
   window.addEventListener('hashchange', route);
   route();
   // le moteur démarre en arrière-plan pour être prêt plus vite

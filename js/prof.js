@@ -3,7 +3,7 @@
 // avec les variantes de Stockfish ; elle explique, le moteur vérifie.
 import { Chess, $, esc, sanFr, uciToMove, moveToUci, pvToSan } from './util.js';
 import { settings } from './store.js';
-import { chat, hasKey, aiName, aiUsage } from './ai.js';
+import { chat, hasKey, aiName, aiUsage, providerById } from './ai.js';
 import { describePosition, describeLine } from './coach.js';
 import { engine, formatEval } from './engine.js';
 import { puzzleProfile } from './puzzles.js';
@@ -144,7 +144,9 @@ export function mountChat(el, opts = {}) {
         <div class="chat-log" aria-live="polite"></div>
         ${opts.suggestions?.length ? `<div class="chips chat-sugg">${opts.suggestions.map(s => `<button class="chip" type="button">${esc(s)}</button>`).join('')}</div>` : ''}
         <form class="chat-form"><textarea rows="1" placeholder="${esc(opts.placeholder || 'Pose ta question au professeur…')}" enterkeyhint="send"></textarea><button class="btn primary sm" type="submit">Envoyer</button></form>
+        <button class="chat-ai" type="button" title="Changer d'IA">Répond : <b>${esc(aiName())}</b> · changer</button>
       </div>`;
+    $('.chat-ai', el).onclick = () => document.dispatchEvent(new CustomEvent('caissa:ai-settings'));
     const ta = $('textarea', el);
     $('form', el).onsubmit = e => { e.preventDefault(); const q = ta.value.trim(); if (q) { ta.value = ''; ask(q); } };
     ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('form', el).requestSubmit(); } });
@@ -175,6 +177,9 @@ export function mountChat(el, opts = {}) {
     draw();
   }
   render();
+  // l'IA a changé dans les réglages : on met à jour sans perdre la conversation
+  const onChange = () => { if (!el.isConnected) { document.removeEventListener('caissa:ai-changed', onChange); return; } if (!busy) render(); };
+  document.addEventListener('caissa:ai-changed', onChange);
   return { ask, reset() { hist = []; if (!busy) render(); }, refresh: render };
 }
 const MODE_CHAT = '- Réponds en 2 à 6 phrases. Termine par une question courte seulement si elle aide l\'élève à trouver lui-même.';
@@ -381,5 +386,7 @@ export function usageTexte() {
   const u = aiUsage();
   if (!u.calls) return 'Aucune demande au professeur ce mois-ci.';
   const k = n => (n >= 1000 ? `${Math.round(n / 100) / 10} k` : String(n));
-  return `Ce mois-ci : ${u.calls} demande${u.calls > 1 ? 's' : ''} au professeur · ${k(u.in)} tokens envoyés · ${k(u.out)} tokens reçus.`;
+  const par = Object.entries(u.par || {});
+  const detail = par.length > 1 ? ` (${par.map(([pid, x]) => `${providerById(pid).name} : ${x.calls}`).join(' · ')})` : par.length === 1 ? ` via ${providerById(par[0][0]).name}` : '';
+  return `Ce mois-ci : ${u.calls} demande${u.calls > 1 ? 's' : ''} au professeur${detail} · ${k(u.in)} tokens envoyés · ${k(u.out)} tokens reçus.`;
 }

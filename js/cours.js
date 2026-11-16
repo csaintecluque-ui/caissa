@@ -46,7 +46,11 @@ const ICON = {
   go: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
 };
 
+let homeRoot = null;
+document.addEventListener('caissa:ai-changed', () => { if (homeRoot?.isConnected && !L) { const y = window.scrollY; renderHome(homeRoot); window.scrollTo(0, y); } });
+
 function renderHome(root) {
+  homeRoot = root;
   const reco = recommandation();
   const b = bilanEleve();
   const p = prof();

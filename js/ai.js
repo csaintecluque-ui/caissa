@@ -38,15 +38,17 @@ export function aiSettings() {
 }
 export function saveAiSettings(ai) { settings.set({ ai, apiKey: '', model: '' }); }
 
-function conf() {
+function conf(pid0) {
   const ai = aiSettings();
-  const pid = ai.provider;
+  const pid = pid0 || ai.provider;
   return { pid, key: cleanKey(ai.keys[pid]), model: (ai.models[pid] || providerById(pid).defaultModel || '').trim(), base: (ai.customBase || '').trim().replace(/\/+$/, '') };
 }
 function usable(c) { return c.pid === 'custom' ? !!c.base && !!c.model : !!c.key && !!c.model; }
 export function hasKey() { return usable(conf()); }
-export function aiName() {
-  const c = conf();
+/** Fournisseurs prêts à servir : une clé (ou une adresse) et un modèle sont enregistrés. */
+export function configuredProviders() { return PROVIDERS.filter(p => usable(conf(p.id))).map(p => p.id); }
+export function aiName(pid) {
+  const c = conf(pid);
   const sug = providerById(c.pid).suggested.find(m => m.id === c.model);
   if (sug) return `${providerById(c.pid).name} · ${sug.label.split(' · ')[0]}`;
   return c.model ? `${providerById(c.pid).name} · ${c.model.split('/').pop()}` : providerById(c.pid).name;
@@ -69,8 +71,8 @@ function partsText(c) {
   return '';
 }
 
-async function call(messages, system, budget) {
-  const c = conf(), pid = c.pid, pname = providerById(pid).name;
+async function call(messages, system, budget, pid0) {
+  const c = conf(pid0), pid = c.pid, pname = providerById(pid).name;
   let url, headers = { 'content-type': 'application/json' }, body;
   if (pid === 'anthropic') {
     url = 'https://api.anthropic.com/v1/messages';
@@ -102,32 +104,36 @@ async function call(messages, system, budget) {
   else if (pid === 'google') { const cd = j.candidates?.[0]; text = (cd?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join(''); finish = cd?.finishReason || ''; }
   else { const ch = j.choices?.[0]; text = partsText(ch?.message?.content); finish = ch?.finish_reason || ''; }
   const u = j.usage || j.usageMetadata || {};
-  recordUsage(u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0, u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount ?? 0);
+  recordUsage(pid, u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0, u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount ?? 0);
   return { text, finish };
 }
 
 // --- consommation : nombre d'appels et de tokens du mois, pour garder un œil sur son crédit ---
 function monthKey() { return new Date().toISOString().slice(0, 7); }
-function recordUsage(input, output) {
+function recordUsage(pid, input, output) {
   const u = store.get('aiUsage', {});
   const k = monthKey();
   const m = u[k] || { calls: 0, in: 0, out: 0 };
   m.calls++; m.in += +input || 0; m.out += +output || 0;
+  m.par = m.par || {};
+  const p = m.par[pid] || { calls: 0, in: 0, out: 0 };
+  p.calls++; p.in += +input || 0; p.out += +output || 0;
+  m.par[pid] = p;
   store.set('aiUsage', { [k]: m });
 }
-export function aiUsage() { return { calls: 0, in: 0, out: 0, ...(store.get('aiUsage', {})[monthKey()] || {}) }; }
+export function aiUsage() { return { calls: 0, in: 0, out: 0, par: {}, ...(store.get('aiUsage', {})[monthKey()] || {}) }; }
 
 export function ask(prompt, opts) { return chat([{ role: 'user', content: prompt }], opts); }
 
 /** Conversation à plusieurs tours : messages = [{ role: 'user' | 'assistant', content }]. */
-export async function chat(messages, { maxTokens = 700, system = SYSTEM } = {}) {
-  if (!hasKey()) throw new AIError('no_key', 'Choisis une IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).');
-  const pid = conf().pid;
+export async function chat(messages, { maxTokens = 700, system = SYSTEM, provider } = {}) {
+  if (!usable(conf(provider))) throw new AIError('no_key', 'Choisis une IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).');
+  const pid = conf(provider).pid;
   // marge pour les modèles qui « réfléchissent » avant d'écrire
   const budget = pid === 'anthropic' ? maxTokens : Math.max(maxTokens * 4, 4000);
-  let r = await call(messages, system, budget);
+  let r = await call(messages, system, budget, provider);
   if (r.text.trim()) return r.text.trim();
-  r = await call(messages, system, Math.max(budget * 2, 8000));
+  r = await call(messages, system, Math.max(budget * 2, 8000), provider);
   if (r.text.trim()) return r.text.trim();
   throw new AIError('empty', `Le modèle n'a renvoyé aucun texte${r.finish ? ` (fin : ${r.finish})` : ''}. Choisis un modèle plus direct (par ex. Claude Haiku, une version « mini » ou « flash »).`);
 }
@@ -160,7 +166,7 @@ export async function listModels(pid, key, customBase = '') {
   }
 }
 
-export function testAI() { return ask('Réponds seulement : « Prêt pour la leçon ! »', { maxTokens: 200 }); }
+export function testAI(provider) { return ask('Réponds seulement : « Prêt pour la leçon ! »', { maxTokens: 200, provider }); }
 
 /** Réglages IA de Tengen, s'ils sont lisibles depuis cette appli (même site, même navigateur). */
 export function tengenAiSettings() {
