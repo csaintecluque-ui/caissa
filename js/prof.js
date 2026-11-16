@@ -10,6 +10,7 @@ import { puzzleProfile } from './puzzles.js';
 import { listMistakes, CATEGORIES, CLASSES, saveGame, describeResult } from './games.js';
 import { LECONS, leconById, POUR_CATEGORIE } from './cours-data.js';
 import { prof, saveProf, ajouterNote, bilanEleve, etatLecon } from './eleve.js';
+import { objectif, themesPrioritaires, serieEnCours, THEME } from './niveaux.js';
 
 export { hasKey, aiName, aiUsage };
 
@@ -24,6 +25,10 @@ export function ficheEleve() {
   out.push(`Leçons validées : ${faites.length}/${LECONS.length}${faites.length ? ` (${faites.slice(-6).map(l => l.titre).join(' ; ')})` : ''}.`);
   if (b.precision != null) out.push(`Sur ses ${Math.min(10, b.analysees)} dernières parties analysées : précision moyenne ${b.precision} %, ${b.gaffesParPartie} gaffe(s) par partie ; par phase : ouverture ${b.phases.ouverture ?? '—'}, milieu ${b.phases.milieu ?? '—'}, finale ${b.phases.finale ?? '—'}.`);
   if (b.faiblesses.length) out.push(`Erreurs les plus fréquentes en partie : ${b.faiblesses.slice(0, 4).map(([k, n]) => `${CATEGORIES[k]} (${n})`).join(', ')}.`);
+  const o = objectif();
+  out.push(`Objectif en cours : ${o.cible} Elo. Leviers déjà atteints : ${o.leviers.filter(l => l.ok).map(l => l.nom).join(', ') || 'aucun pour l\'instant'}. Leviers à travailler : ${o.leviers.filter(l => !l.ok).map(l => `${l.nom} (${l.txt})`).join(', ') || 'aucun'}.`);
+  const tp = themesPrioritaires(3);
+  if (tp.length) out.push(`Thèmes tactiques à travailler en priorité : ${tp.map(t => `${t.nom}${t.niveau.neuf ? ' (pas encore vu)' : ` (niveau ${t.niveau.r})`}`).join(', ')}. Série de séances en cours : ${serieEnCours()} jour(s).`);
   if (p.notes.length) out.push(`Tes notes des séances précédentes :\n${p.notes.slice(0, 8).map(n => `- ${n.t}`).join('\n')}`);
   return out.join('\n');
 }
@@ -327,7 +332,7 @@ Chiffres :
 (Le reste de sa fiche t'a été donné plus haut.)
 
 Leçons du programme qu'il n'a pas encore validées : ${reste.length ? reste.map(l => `« ${l.titre} »`).join(', ') : 'aucune, tout est validé'}.
-Autres outils de l'appli que tu peux lui prescrire : problèmes par thème, parties d'entraînement contre des personnages qui jouent comme des humains, parties classées, révision du carnet d'erreurs, cours particulier sur ses erreurs.
+Autres outils de l'appli que tu peux lui prescrire : la séance du jour (échauffement, ses erreurs, un thème), les ateliers par thème, les problèmes, parties d'entraînement contre des personnages qui jouent comme des humains, parties classées, révision du carnet d'erreurs, cours particulier sur ses erreurs.
 
 Format exact, balises entre crochets seules sur leur ligne :
 [BILAN]
@@ -346,6 +351,30 @@ Une ligne de 20 mots maximum pour ta fiche de suivi.`;
   if (s.NOTE) ajouterNote(s.NOTE, 'bulletin');
   saveProf({ bulletins: [bu, ...prof().bulletins].slice(0, 6) });
   return bu;
+}
+
+// --- atelier : une leçon sur un thème, écrite autour de problèmes vérifiés --------------------------
+/** puzzles = [{ fen (position à résoudre), sol: [uci…] }] ; renvoie { idee, items: [{question, explication}], reflexe }. */
+export async function atelierTextes(themeId, puzzles, niveau) {
+  const t = THEME[themeId];
+  const prompt = `Prépare un atelier sur le thème « ${t.nom} » pour ton élève (son niveau sur ce thème : ${niveau}). Il va résoudre ${puzzles.length} positions tirées de vraies parties, de difficulté adaptée. Les solutions ci-dessous sont vérifiées par le moteur.
+
+Rappel du thème : ${t.idee}
+
+${puzzles.map((p, i) => `=== POSITION ${i + 1} ===\n${describePosition(p.fen)}\nSolution :\n${describeLine(p.fen, p.sol, 8)}`).join('\n\n')}
+
+Écris l'atelier exactement dans ce format, avec les balises entre crochets seules sur leur ligne :
+[IDEE]
+4 ou 5 phrases : explique le thème à son niveau, comment le reconnaître en partie, et l'erreur que font les joueurs de son niveau.
+${puzzles.map((_, i) => `[QUESTION ${i + 1}]\nUne ou deux phrases pour orienter son regard sur la position ${i + 1} SANS donner le coup ni la pièce à jouer.\n[EXPLICATION ${i + 1}]\n2 ou 3 phrases, à lire après sa réponse : pourquoi la solution marche, et où est le thème.`).join('\n')}
+[REFLEXE]
+Le réflexe à emporter, en une ou deux phrases.`;
+  const txt = propre(await chat([{ role: 'user', content: prompt }], { system: profSystem(), maxTokens: 1700 }));
+  const s = sections(txt);
+  return {
+    par: aiName(), idee: s.IDEE || s['IDÉE'] || '', reflexe: s.REFLEXE || s['RÉFLEXE'] || '',
+    items: puzzles.map((_, i) => ({ question: s[`QUESTION ${i + 1}`] || '', explication: s[`EXPLICATION ${i + 1}`] || '' })),
+  };
 }
 
 export function usageTexte() {

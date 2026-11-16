@@ -1,25 +1,41 @@
-// Cours : le programme, le lecteur de leçon interactif, les contrôles, le carnet de l'élève
-// et les cours particuliers du professeur.
+// Cours : l'objectif Elo et ses leviers, la séance du jour, les ateliers par thème, le programme
+// de base, le lecteur de leçon interactif, les contrôles, le carnet de l'élève et les cours particuliers.
 import { Board } from './board.js';
 import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, sanFr, pvToSan, numberedSan, fmtDate } from './util.js';
 import { engine, lineWin } from './engine.js';
 import { MODULES, leconById, START } from './cours-data.js';
 import { etatLecon, positionLecon, noterPosition, noterControle, aReviser, recommandation, prof, saveProf, supprimerNote, bilanEleve, SEUIL } from './eleve.js';
-import { hasKey, mountChat, sansCle, contextePosition, refutation, coursParticulier, bulletin, usageTexte, MODE_EXERCICE, matierePourCours } from './prof.js';
-import { drawPuzzles, puzzleProfile } from './puzzles.js';
-import { reviewMistake, weaknessStats, CATEGORIES } from './games.js';
+import { hasKey, mountChat, sansCle, contextePosition, refutation, coursParticulier, bulletin, usageTexte, MODE_EXERCICE, matierePourCours, atelierTextes } from './prof.js';
+import { drawPuzzles, puzzleProfile, noterProbleme } from './puzzles.js';
+import { reviewMistake, weaknessStats, dueMistakes, CATEGORIES } from './games.js';
+import { THEME, THEMES_TRAVAIL, themesOuverts, themesPrioritaires, niveauTheme, objectif, seanceFaiteAujourdhui, serieEnCours, noterSeance, partieConseillee, preparerPartie, classementsEnLigne, rafraichirClassements } from './niveaux.js';
 
 let L = null; // leçon en cours
 if (typeof window !== 'undefined') window.__caissaLecon = () => L; // pour les tests automatiques (tools/)
 
+let attente = 0; // préparation d'une séance ou d'un atelier en cours
+
 export function mount(root, params = {}) {
+  if (params.seance) return openAsync(root, 'Le professeur prépare ta séance…', construireSeance);
+  if (params.atelier && THEME[params.atelier]) return openAsync(root, `Le professeur prépare l'atelier « ${THEME[params.atelier].nom} »…`, dire => construireAtelier(params.atelier, dire));
   if (params.l && leconById(params.l)) return openLesson(root, leconById(params.l), !!params.rev);
   if (params.cp) { const c = prof().cours.find(x => x.id === params.cp); if (c) return openLesson(root, leconDepuisCours(c), false); }
   renderHome(root);
 }
 export function unmount() {
+  attente++;
   if (L) { L.token++; engine.cancelAll(); }
   L = null;
+}
+async function openAsync(root, msg, build) {
+  const tok = ++attente;
+  root.innerHTML = `<div class="card" style="max-width:520px;margin:30px auto"><div class="coach loading" id="co-wait">${esc(msg)}</div></div>`;
+  try {
+    const lecon = await build(t => { const el = $('#co-wait', root); if (el) el.textContent = t; });
+    if (tok === attente) openLesson(root, lecon, false);
+  } catch (e) {
+    if (tok === attente) root.innerHTML = `<div class="card" style="max-width:520px;margin:30px auto"><div class="fb ko">${esc(e.message)}</div><a class="btn" href="#/cours" style="margin-top:10px">Retour aux cours</a></div>`;
+  }
 }
 
 // =========================================================================================
@@ -39,10 +55,38 @@ function renderHome(root) {
   const total = stats.reduce((t, [, n]) => t + n, 0);
   const recoBtn = { continuer: 'Reprendre la leçon', revision: 'Faire la révision', faiblesse: 'Commencer la leçon', suite: 'Commencer la leçon' }[reco.type];
   const recoLabel = { continuer: 'Leçon en cours', revision: 'Révision', faiblesse: 'Choisie pour toi', suite: 'Prochaine leçon', fini: 'Programme terminé' }[reco.type];
+  const o = objectif();
+  const faite = seanceFaiteAujourdhui(), serie = serieEnCours();
+  const prio = themesPrioritaires(3), ouverts = themesOuverts();
+  const due = dueMistakes().length;
   root.innerHTML = `
   <div class="split">
     <div class="stack">
-      <div><h2>Cours</h2><p class="muted" style="margin:4px 0 0">Un programme complet, des exercices sur l'échiquier, et un professeur qui suit tes parties.</p></div>
+      <div><h2>Cours</h2><p class="muted" style="margin:4px 0 0">Un entraînement qui monte avec toi : un objectif Elo, une séance par jour, et un professeur qui suit tes parties.</p></div>
+      <div class="card objectif">
+        <div class="row between"><span class="badge">Ton objectif</span><span class="small muted">Elo Caïssa : <b>${o.elo}</b>${o.provisoire ? ' (provisoire)' : ''}</span></div>
+        <div class="obj-t">${o.cible} <small>Elo</small></div>
+        <div class="progress big"><i style="width:${o.pct * 100}%"></i></div>
+        <div class="row between tiny muted" style="margin-top:3px"><span>${o.depart}</span><span>encore ${Math.max(0, o.cible - o.elo)} points</span><span>${o.cible}</span></div>
+        <p class="tiny muted" id="ob-ligne" style="margin:6px 0 0">${enLigneTexte(classementsEnLigne())}</p>
+        <details class="leviers" ${o.faits < o.leviers.length ? 'open' : ''}><summary>Tes leviers pour y arriver <span class="badge ${o.faits === o.leviers.length ? 'good' : ''}">${o.faits}/${o.leviers.length}</span></summary>
+          ${o.leviers.map(l => `<div class="levier ${l.ok ? 'ok' : ''}"><span class="lecon-dot">${l.ok ? ICON.ok : ''}</span><div class="grow"><div class="row between" style="flex-wrap:nowrap;gap:6px"><b>${esc(l.nom)}</b><span class="small" style="text-align:right">${esc(l.txt)}</span></div><div class="progress"><i style="width:${l.pct * 100}%"></i></div>${l.ok ? '' : `<div class="tiny muted">${esc(l.aide)}</div>`}</div></div>`).join('')}
+          <p class="tiny muted" style="margin:8px 0 0">Dès que ton Elo atteint ${o.cible}, l'objectif passe à ${o.cible + 100} et les leviers se resserrent. Ce sont des repères, pas une garantie : ton Elo monte en jouant des parties classées.</p>
+        </details>
+      </div>
+      <div class="card reco">
+        <div class="row between"><span class="badge ${faite ? 'good' : ''}">${faite ? 'Séance du jour faite' : 'Séance du jour'}</span>${serie ? `<span class="small muted">Série : <b>${serie}</b> jour${serie > 1 ? 's' : ''}</span>` : ''}</div>
+        <div class="reco-t">15 minutes avec le professeur</div>
+        <p class="small" style="margin:6px 0 12px">Trois problèmes d'échauffement${due ? `, ${Math.min(4, due)} erreur${Math.min(4, due) > 1 ? 's' : ''} de tes parties à corriger` : ''}, puis ton thème du moment : <b>${prio[0] ? esc(prio[0].nom) : 'mélange'}</b>${prio[0] && !prio[0].niveau.neuf ? ` (niveau ${prio[0].niveau.r})` : ''}. La difficulté suit ton niveau.</p>
+        <a class="btn ${faite ? '' : 'primary'} block" href="#/cours?seance=${Date.now()}">${faite ? 'Refaire une séance' : 'Commencer la séance'}</a>
+      </div>
+      <div class="card">
+        <h3>Ateliers par thème</h3>
+        <p class="small muted" style="margin:0 0 6px">Cinq positions de vraies parties sur un thème, à ton niveau sur ce thème. ${hasKey() ? 'Le professeur rédige l\'atelier pour toi.' : 'Avec une clé API, le professeur rédige chaque atelier pour toi.'}</p>
+        <div class="list">${prio.map(t => atelierRow(t, true)).join('')}</div>
+        <details class="cls-table"><summary>Tous les thèmes ouverts (${ouverts.length})</summary><div class="list">${ouverts.map(t => atelierRow({ ...t, niveau: niveauTheme(t.id) }, false)).join('')}</div>
+          ${ouverts.length < THEMES_TRAVAIL.length ? `<p class="tiny muted" style="margin:8px 0 0">${THEMES_TRAVAIL.length - ouverts.length} autres thèmes s'ouvriront quand ton niveau aux problèmes montera (prochains : ${THEMES_TRAVAIL.slice(ouverts.length, ouverts.length + 3).map(t => t[1]).join(', ')}).</p>` : ''}</details>
+      </div>
       <div class="card reco">
         <span class="badge">${recoLabel}</span>
         ${reco.lecon ? `<div class="reco-t">${esc(reco.lecon.titre)}</div><p class="small muted" style="margin:0 0 4px">${esc(reco.lecon.module.titre)} · ${reco.lecon.duree} min</p>` : '<div class="reco-t">Bravo !</div>'}
@@ -50,7 +94,7 @@ function renderHome(root) {
         ${reco.lecon ? `<a class="btn primary block" href="#/cours?l=${reco.lecon.id}${reco.type === 'revision' ? '&rev=1' : ''}">${recoBtn}</a>` : '<a class="btn primary block" href="#/problemes">Faire des problèmes</a>'}
       </div>
       <div class="card">
-        <div class="row between"><h3>Le programme</h3><span class="muted small">${b.avancement.faites} / ${b.avancement.total} leçons validées</span></div>
+        <div class="row between"><h3>Les bases</h3><span class="muted small">${b.avancement.faites} / ${b.avancement.total} leçons validées</span></div>
         <div class="progress" style="margin:4px 0 6px"><i style="width:${(b.avancement.faites / b.avancement.total) * 100}%"></i></div>
         ${MODULES.map((m, i) => moduleHtml(m, i, reco)).join('')}
       </div>
@@ -69,6 +113,7 @@ function renderHome(root) {
     </div>
   </div>`;
   renderCarnet($('#co-carnet', root));
+  rafraichirClassements().then(c => { const el = $('#ob-ligne', root); if (el && c) el.textContent = enLigneTexte(c); }).catch(() => {});
   mountChat($('#co-chat', root), { suggestions: ['Comment m\'entraîner cette semaine ?', 'Comment ne plus paniquer face à un humain ?'], sansCle: 'Avec une clé API, tu peux poser ici toutes tes questions au professeur.' });
   const cpCats = $('#cp-cats', root);
   if (cpCats) {
@@ -86,6 +131,99 @@ function renderHome(root) {
       } catch (e) { msg.innerHTML = `<div class="fb ko">${esc(e.message)}</div>`; btn.disabled = false; }
     };
   }
+}
+
+function enLigneTexte(c) {
+  const parts = [];
+  if (c?.lichess) { const v = c.lichess.rapide ?? c.lichess.blitz; if (v) parts.push(`Lichess ${c.lichess.rapide ? 'rapide' : 'blitz'} : ${v}`); }
+  if (c?.chesscom) { const v = c.chesscom.rapide ?? c.chesscom.blitz; if (v) parts.push(`Chess.com ${c.chesscom.rapide ? 'rapide' : 'blitz'} : ${v}`); }
+  return parts.length ? `Tes classements en ligne — ${parts.join(' · ')}` : 'Renseigne ton pseudo Lichess ou Chess.com dans les réglages pour suivre aussi ton classement contre des humains.';
+}
+function atelierRow(t, conseille) {
+  const n = t.niveau;
+  return `<a class="list-item lecon-row" href="#/cours?atelier=${t.id}&r=${Date.now()}"><div class="grow"><div class="t">${esc(t.nom)}</div><div class="s">${n.neuf ? 'Pas encore travaillé' : `Niveau ${n.r} · ${n.ok}/${n.n} réussis`}</div></div>${conseille ? '<span class="badge">conseillé</span>' : ''}${ICON.go}</a>`;
+}
+
+// =========================================================================================
+// Séance du jour et ateliers : des séries bâties à la demande, à la difficulté de l'élève
+// =========================================================================================
+function etapeProbleme(p, h, ok) { return { ...puzzleStep(p), puzzle: p, h, ok }; }
+const signe = d => (d > 0 ? `+${d}` : String(d));
+
+async function construireSeance(dire) {
+  const pz = puzzleProfile().rating;
+  const used = new Set();
+  const warm = await drawPuzzles('mix', 3, Math.max(450, pz - 250), used);
+  warm.forEach(p => used.add(p.id));
+  const errs = dueMistakes().sort(() => Math.random() - 0.5).slice(0, 4);
+  let theme = null, work = [];
+  for (const t of themesPrioritaires(4)) {
+    dire?.(`Je choisis tes problèmes : ${t.nom}…`);
+    const w = await drawPuzzles(t.id, 5, t.niveau.r, used);
+    if (w.length >= 3) { theme = t; work = w; break; }
+  }
+  if (!theme) work = await drawPuzzles('mix', 5, pz, used);
+  if (!warm.length && !work.length && !errs.length) throw new Error('Aucun problème disponible hors ligne. Connecte-toi à Internet pour charger ta séance.');
+  const avant = theme ? niveauTheme(theme.id).r : pz;
+  const nomTheme = theme ? theme.nom : 'Mélange';
+  const etapes = [{ t: 'texte', h: `<p>Ta séance d'aujourd'hui, en ${errs.length ? 'trois' : 'deux'} temps :</p><ol><li><b>Échauffement</b> : ${warm.length} problèmes faciles, pour mettre l'œil en route.</li>${errs.length ? `<li><b>Tes erreurs</b> : ${errs.length} position${errs.length > 1 ? 's' : ''} de tes parties, à rejouer correctement.</li>` : ''}<li><b>${esc(nomTheme)}</b> : ${work.length} problèmes à ton niveau sur ce thème.</li></ol><p class="small muted">Un seul essai compte pour ton niveau : prends le temps de faire ta routine avant de jouer.</p>` }];
+  warm.forEach((p, i) => etapes.push(etapeProbleme(p, `<p class="small muted" style="margin-bottom:4px">Échauffement ${i + 1}/${warm.length}</p><p>Trouve le meilleur coup.</p>`)));
+  if (errs.length) {
+    etapes.push({ t: 'texte', h: `<p><b>Tes erreurs</b></p><p>Ces positions viennent de tes parties. À chaque fois, tu avais mieux à jouer : retrouve-le. Celles que tu rates reviendront plus tôt.</p>` });
+    for (const m of errs) etapes.push({ t: 'trouve', fen: m.fen, moteur: true, mid: m.id, sol: [m.best], h: `<p class="small muted" style="margin-bottom:4px">Ta partie contre ${esc(m.opponent || '?')} · ${esc(CATEGORIES[m.category] || '')}</p><p>Tu avais joué <b>${esc(sanFr(m.playedSan))}</b>. Trouve mieux.</p>`, ok: `Le meilleur coup : <b>${esc(sanFr(m.bestSan))}</b>.` });
+  }
+  if (work.length) {
+    etapes.push({ t: 'texte', h: theme ? `<p><b>${esc(theme.nom)}</b></p><p>${esc(theme.idee)}</p><p><b>Le réflexe :</b> ${esc(theme.reflexe)}</p>` : '<p><b>Problèmes variés</b></p><p>Thèmes mélangés, à ton niveau : comme en partie, personne ne te dit quoi chercher.</p>' });
+    work.forEach((p, i) => etapes.push(etapeProbleme(p, `<p class="small muted" style="margin-bottom:4px">${esc(nomTheme)} ${i + 1}/${work.length} · difficulté ${p.rating}</p><p>Trouve le meilleur coup.</p>`)));
+  }
+  return {
+    id: 'seance', prive: true, titre: 'Séance du jour', duree: 15, module: { titre: 'Entraînement' }, but: 'Échauffement, correction de ses propres erreurs, puis un thème tactique à son niveau.', etapes,
+    fin: results => {
+      const ok = results.filter(Boolean).length, n = results.length;
+      const s = noterSeance(theme?.id || null, ok, n);
+      const apres = theme ? niveauTheme(theme.id).r : puzzleProfile().rating;
+      const pc = partieConseillee();
+      return {
+        html: `<div class="result-big">${ok} / ${n}</div>
+          <p style="text-align:center;font-weight:600">Séance terminée</p>
+          <p class="small muted" style="text-align:center">Série : <b>${s.serie}</b> jour${s.serie > 1 ? 's' : ''} · ${esc(nomTheme)} : ${avant} → <b>${apres}</b> (${signe(apres - avant)})</p>
+          <div class="fb info" style="margin-top:10px"><b>Maintenant, une partie classée.</b> C'est là que ton Elo se gagne. Je te propose ${esc(pc.bot.name)} (${pc.bot.elo}), en 15 + 10.<br><b>Ta consigne :</b> ${esc(pc.consigne)}</div>`,
+        actions: `<button class="btn primary" data-a="jouer">Jouer contre ${esc(pc.bot.name)}</button><a class="btn" href="#/cours">Retour aux cours</a>`,
+        on: { jouer: () => { preparerPartie(pc.bot.id); location.hash = '#/jouer?new=1'; } },
+      };
+    },
+  };
+}
+
+async function construireAtelier(id, dire) {
+  const t = THEME[id], nv = niveauTheme(id);
+  dire?.(`Je choisis des positions « ${t.nom} » à ton niveau…`);
+  const pzs = await drawPuzzles(id, 5, nv.r);
+  if (pzs.length < 3) throw new Error(`Pas assez de problèmes « ${t.nom} » sur l'appareil. Connecte-toi à Internet : ils se chargent depuis Lichess.`);
+  const bases = pzs.map(puzzleStep);
+  let txt = null, panne = '';
+  if (hasKey()) {
+    dire?.('Le professeur rédige ton atelier…');
+    try { txt = await atelierTextes(id, bases.map(s => ({ fen: s.fen, sol: s.sol })), nv.neuf ? 'pas encore mesuré' : nv.r); }
+    catch (e) { console.warn(e); panne = e.message; }
+  }
+  const etapes = [{ t: 'texte', h: `<p>${esc(txt?.idee || t.idee)}</p>${txt ? '' : `<p><b>Le réflexe :</b> ${esc(t.reflexe)}</p>`}<p class="small muted">${pzs.length} positions de vraies parties, autour de ${Math.round(nv.r / 10) * 10} de difficulté.${panne ? ' Le professeur n\'a pas pu rédiger cet atelier (' + esc(panne) + ') : voici la version standard.' : ''}</p>` }];
+  pzs.forEach((p, i) => etapes.push(etapeProbleme(p, `<p class="small muted" style="margin-bottom:4px">Position ${i + 1}/${pzs.length} · difficulté ${p.rating}</p><p>${esc(txt?.items[i]?.question || 'Trouve le meilleur coup.')}</p>`, esc(txt?.items[i]?.explication || ''))));
+  etapes.push({ t: 'texte', h: `<p><b>Le réflexe à emporter</b></p><p>${esc(txt?.reflexe || t.reflexe)}</p>` });
+  return {
+    id: 'atelier-' + id, prive: true, titre: t.nom, duree: 10, module: { titre: 'Atelier' }, but: t.idee, etapes,
+    fin: results => {
+      const ok = results.filter(Boolean).length, n = results.length;
+      const apres = niveauTheme(id).r;
+      const autre = themesPrioritaires(3).find(x => x.id !== id);
+      return {
+        html: `<div class="result-big">${ok} / ${n}</div>
+          <p style="text-align:center;font-weight:600">${esc(t.nom)}</p>
+          <p class="small muted" style="text-align:center">Ton niveau sur ce thème : ${nv.neuf ? 'premier passage' : nv.r} → <b>${apres}</b>${nv.neuf ? '' : ` (${signe(apres - nv.r)})`}. ${ok >= n - 1 ? 'Le prochain atelier sera plus difficile.' : 'Le prochain atelier s\'adaptera.'}</p>`,
+        actions: `<a class="btn primary" href="#/cours?atelier=${id}&r=${Date.now()}">Encore un atelier</a>${autre ? `<a class="btn" href="#/cours?atelier=${autre.id}&r=${Date.now()}">${esc(autre.nom)}</a>` : ''}<a class="btn ghost" href="#/cours">Cours</a>`,
+      };
+    },
+  };
 }
 
 function moduleHtml(m, i, reco) {
@@ -281,6 +419,7 @@ function done(success, html, cls) {
   if (html) setFb(html, cls || (success ? 'ok' : 'ko'));
   const s = l.steps[l.idx];
   if (s.mid) reviewMistake(s.mid, success && !cur.failed);
+  if (s.puzzle && !s.note) { s.note = true; noterProbleme(s.puzzle, success && !cur.failed ? 1 : 0); }
   if (l.mode === 'prive' && s.t === 'trouve') l.results.push(success && !cur.failed);
   actions(cur.extraDone || []);
 }
@@ -671,7 +810,17 @@ function finishPrivate() {
   const ok = l.results.filter(Boolean).length, n = l.results.length;
   l.board.setMovable(null);
   $('#ls-choices', l.root).innerHTML = '';
+  $('#ls-prog', l.root).style.width = '100%';
+  $('#ls-prof-card', l.root).classList.add('hidden');
   setFb('');
+  if (l.lecon.fin) {
+    const f = l.lecon.fin(l.results);
+    sound('end');
+    $('#ls-text', l.root).innerHTML = f.html;
+    $('#ls-actions', l.root).innerHTML = f.actions;
+    $('#ls-actions', l.root).onclick = e => { const id = e.target.closest('[data-a]')?.dataset.a; if (id) f.on?.[id]?.(); };
+    return;
+  }
   $('#ls-text', l.root).innerHTML = `
     <div class="result-big">${ok} / ${n}</div>
     <p style="text-align:center;font-weight:600">trouvés du premier coup</p>

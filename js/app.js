@@ -7,6 +7,7 @@ import * as analysis from './analysis.js';
 import * as notebook from './notebook.js';
 import * as cours from './cours.js';
 import { recommandation, avancement } from './eleve.js';
+import { objectif, seanceFaiteAujourdhui, serieEnCours } from './niveaux.js';
 import { puzzleProfile, THEMES } from './puzzles.js';
 import { dueMistakes, weaknessStats, CATEGORIES, listGames } from './games.js';
 import { advice } from './notebook.js';
@@ -15,7 +16,7 @@ import { playerRating, setInitialElo } from './rating.js';
 import { usageTexte } from './prof.js';
 import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings } from './ai.js';
 
-export const VERSION = '1.4.0';
+export const VERSION = '1.5.0';
 
 const ROUTES = { '': home(), cours, problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
@@ -78,6 +79,11 @@ function home() {
             <div class="stat"><b>${ps.wins}–${ps.draws}–${ps.losses}</b><span>parties (V–N–D)</span></div>
           </div>
         </div>
+        ${seanceFaiteAujourdhui() ? '' : `<a class="card cours-home" href="#/cours?seance=${Date.now()}">
+          ${ICONS.school}
+          <span class="grow"><span class="badge">Séance du jour</span><b>15 minutes avec le professeur</b>
+            <span class="small muted">Objectif ${objectif().cible} Elo${serieEnCours() ? ` · série de ${serieEnCours()} jour${serieEnCours() > 1 ? 's' : ''}` : ''}</span></span>
+        </a>`}
         <a class="card cours-home" href="${reco.lecon ? `#/cours?l=${reco.lecon.id}${reco.type === 'revision' ? '&rev=1' : ''}` : '#/cours'}">
           ${ICONS.school}
           <span class="grow"><span class="badge">${recoMot}</span><b>${reco.lecon ? esc(reco.lecon.titre) : 'Tes cours'}</b>

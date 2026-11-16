@@ -4,6 +4,7 @@ import { Board } from './board.js';
 import { Chess, $, esc, uciToMove, moveToUci, destsFor, checkSquare, sound, moveSound, toast, sanFr, pvToSan, numberedSan } from './util.js';
 import { store } from './store.js';
 import { askClaude, explainPuzzlePrompt, hasKey } from './coach.js';
+import { noterThemes } from './niveaux.js';
 
 export const THEMES = {
   mix: 'Mélange', hangingPiece: 'Pièce en prise', fork: 'Fourchette', pin: 'Clouage', skewer: 'Enfilade',
@@ -111,17 +112,24 @@ async function pickPuzzle(theme) {
 }
 
 /** Tire jusqu'à n problèmes d'un thème, proches du niveau donné (contrôles des leçons). */
-export async function drawPuzzles(theme, n, rating) {
-  const match = p => p.themes.includes(theme);
+export async function drawPuzzles(theme, n, rating, exclude = new Set()) {
+  const match = p => (theme === 'mix' || p.themes.includes(theme)) && !exclude.has(p.id);
   const local = await loadLocal();
+  const seen = seenSet();
   let pool = [...local, ...lichessPool()].filter(match);
-  if (pool.length < n * 3 && navigator.onLine) {
+  const proches = () => pool.filter(p => !seen.has(p.id) && Math.abs(p.rating - rating) <= 250).length;
+  if (proches() < n * 2 && navigator.onLine) {
     try { await Promise.race([fetchLichess(theme, rating), new Promise((_, rej) => setTimeout(() => rej(new Error('délai')), 6000))]); } catch (e) { console.warn(e); }
     pool = [...local, ...lichessPool()].filter(match);
   }
-  const seen = seenSet();
   const score = p => Math.abs(p.rating - rating) + (seen.has(p.id) ? 400 : 0) + Math.random() * 150;
   return pool.map(p => [score(p), p]).sort((a, b) => a[0] - b[0]).slice(0, n).map(x => x[1]);
+}
+/** Enregistre le résultat d'un problème : niveau général, niveau de ses thèmes, déjà-vu. */
+export function noterProbleme(p, score) {
+  markSeen(p.id);
+  noterThemes(p, score);
+  return updateRating(p.rating, score);
 }
 
 // --- vue ------------------------------------------------------------------------
@@ -236,8 +244,7 @@ function record(score) {
   const p = state.puzzle;
   if (recorded.has(p)) return null;
   recorded.add(p);
-  markSeen(p.id);
-  return updateRating(p.rating, score);
+  return noterProbleme(p, score);
 }
 
 async function onUserMove(from, to, promotion) {

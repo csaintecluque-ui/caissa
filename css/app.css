@@ -428,3 +428,19 @@ details.module .list { margin: 6px 0 4px; }
 .chat-form .btn { min-height: 44px; }
 .moment { margin-top: 10px; }
 .moment .chip { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--text); }
+
+/* --- objectif Elo, leviers, séances --------------------------------------------------- */
+.objectif { border-left: 3px solid var(--accent); }
+.obj-t { font-family: var(--display); font-size: 46px; font-weight: 700; line-height: 1; margin: 8px 0 8px; }
+.obj-t small { font-size: 20px; color: var(--text-2); font-weight: 600; }
+.progress.big { height: 10px; border-radius: 5px; }
+details.leviers { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.leviers summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+details.leviers summary::-webkit-details-marker { display: none; }
+.levier { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.levier:last-of-type { border-bottom: 0; }
+.levier .grow { flex: 1; min-width: 0; }
+.levier .progress { margin: 5px 0 3px; }
+.levier.ok .lecon-dot { background: var(--good); border-color: var(--good); }
+.levier.ok .progress i { background: var(--good); }
+.cours-home + .cours-home { margin-top: 0; }
