@@ -10,7 +10,15 @@ Application web installable (PWA) pour progresser aux échecs : problèmes adapt
   - *Classée* : aucune aide, la partie compte pour ton **Elo Caïssa** (départ 1000, modifiable dans les réglages).
 - **Bilan de partie** : chaque coup classé par Stockfish 19 (brillant, très fort, meilleur, excellent, bon, théorie, imprécision, erreur, occasion manquée, gaffe), nom de l'ouverture, précision globale et par phase, **Elo estimé sur la partie**, courbe d'évaluation, commentaire de chaque coup, exploration libre. Import de tes parties Lichess, Chess.com ou PGN collé.
 - **Carnet d'erreurs** : tes erreurs deviennent des exercices, révisés à intervalles croissants (1, 3, 7, 16, 35 jours), avec des statistiques sur ce qui te coûte le plus de points.
-- **Professeur IA** (optionnel, comme dans Tengen) : Claude, ChatGPT, Gemini, Grok, OpenRouter ou service compatible OpenAI, avec ta propre clé et le modèle de ton choix (liste des modèles disponibles). Bouton « Expliquer » sur les problèmes, les coups et les positions. Les clés restent sur l'appareil.
+- **Cours** : un programme de 20 leçons en 7 modules (ne plus rien donner, armes tactiques, mats à connaître, ouverture, finales de base, construire un plan, face à un humain). Chaque leçon se fait sur l'échiquier : démonstrations, coups à trouver, cases à toucher, questions, parties contre le moteur (mats élémentaires, finales de pions). Un contrôle sans aide valide la leçon ; elle revient ensuite en révision à 3, 10 et 30 jours. La prochaine leçon est choisie d'après les erreurs relevées dans tes parties. Tout cela fonctionne hors ligne, sans IA.
+- **Professeur IA** (optionnel, comme dans Tengen) : Claude, ChatGPT, Gemini, Grok, OpenRouter ou service compatible OpenAI, avec ta propre clé et le modèle de ton choix (liste des modèles disponibles). Les clés restent sur l'appareil. Avec une clé, le professeur :
+  - répond à tes questions pendant les leçons, en analyse (« pourquoi pas Cf3 ? ») et pendant les parties d'entraînement, où il guide sans donner le coup ;
+  - rédige le **débrief** de chaque partie analysée : les moments clés, une priorité, la leçon conseillée ;
+  - prépare des **cours particuliers** à partir des positions de ton carnet d'erreurs ;
+  - tient le **carnet de l'élève** : bulletin d'étape, programme de la semaine, notes qu'il garde d'une séance à l'autre ;
+  - affiche sa consommation du mois (demandes et tokens).
+
+  Le professeur ne calcule jamais lui-même : chaque position lui est décrite pièce par pièce avec les variantes de Stockfish, et les coups que tu cites sont évalués par le moteur avant de lui être transmis.
 
 ## Grand échiquier
 

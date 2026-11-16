@@ -26,6 +26,7 @@ export class Board {
     this.onMove = opts.onMove || (() => false);
     this.destsFn = opts.dests || (() => []);
     this.movable = opts.movable ?? null; // 'w' | 'b' | 'both' | null
+    this.onSquare = opts.onSquare || null; // si défini : un toucher désigne une case (exercices « touche la case »)
     // 'bords' | 'toutes' | 'aucune' — par défaut le réglage de l'appli
     this.coords = opts.coords || settings.get().squareNames || 'bords';
     this.pieces = {}; // square -> code
@@ -161,6 +162,7 @@ export class Board {
 
   setMovable(m) { this.movable = m; this.selected = null; this.renderHL(); }
   setDests(fn) { this.destsFn = fn; }
+  setOnSquare(fn) { this.onSquare = fn || null; this.selected = null; this.renderHL(); }
   setArrows(arrows) { this.arrows = arrows || []; this.renderArrows(); }
   setMarks(marks) { this.marks = marks || {}; this.renderHL(); }
   flash(sq, kind = 'good') {
@@ -210,6 +212,7 @@ export class Board {
     if (!this.promoEl.hidden) return;
     const sq = this.sqAt(e.clientX, e.clientY);
     if (!sq) return;
+    if (this.onSquare) { e.preventDefault(); this.onSquare(sq); return; }
     if (this.selected && sq !== this.selected && this.destsFn(this.selected).includes(sq)) {
       e.preventDefault();
       this.tryMove(this.selected, sq);

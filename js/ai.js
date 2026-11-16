@@ -69,18 +69,18 @@ function partsText(c) {
   return '';
 }
 
-async function call(prompt, system, budget) {
+async function call(messages, system, budget) {
   const c = conf(), pid = c.pid, pname = providerById(pid).name;
   let url, headers = { 'content-type': 'application/json' }, body;
   if (pid === 'anthropic') {
     url = 'https://api.anthropic.com/v1/messages';
     headers = { ...headers, 'x-api-key': c.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
-    body = { model: c.model, max_tokens: budget, system, messages: [{ role: 'user', content: prompt }] };
+    body = { model: c.model, max_tokens: budget, system, messages };
   } else if (pid === 'google') {
     const m = c.model.replace(/^models\//, '');
     url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
     headers = { ...headers, 'x-goog-api-key': c.key };
-    body = { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: budget } };
+    body = { systemInstruction: { parts: [{ text: system }] }, contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: budget } };
   } else {
     const base = pid === 'openai' ? 'https://api.openai.com/v1' : pid === 'xai' ? 'https://api.x.ai/v1' : pid === 'openrouter' ? 'https://openrouter.ai/api/v1' : c.base;
     url = base + '/chat/completions';
@@ -90,7 +90,7 @@ async function call(prompt, system, budget) {
       headers['HTTP-Referer'] = location.origin + location.pathname; headers['X-Title'] = 'Caïssa';
       extra.reasoning = { effort: 'low', exclude: true };
     }
-    body = { model: c.model, messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }], ...extra };
+    body = { model: c.model, messages: [{ role: 'system', content: system }, ...messages], ...extra };
   }
   let res;
   try { res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) }); }
@@ -101,17 +101,33 @@ async function call(prompt, system, budget) {
   if (pid === 'anthropic') { text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join(''); finish = j.stop_reason || ''; }
   else if (pid === 'google') { const cd = j.candidates?.[0]; text = (cd?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join(''); finish = cd?.finishReason || ''; }
   else { const ch = j.choices?.[0]; text = partsText(ch?.message?.content); finish = ch?.finish_reason || ''; }
+  const u = j.usage || j.usageMetadata || {};
+  recordUsage(u.input_tokens ?? u.prompt_tokens ?? u.promptTokenCount ?? 0, u.output_tokens ?? u.completion_tokens ?? u.candidatesTokenCount ?? 0);
   return { text, finish };
 }
 
-export async function ask(prompt, { maxTokens = 700, system = SYSTEM } = {}) {
+// --- consommation : nombre d'appels et de tokens du mois, pour garder un œil sur son crédit ---
+function monthKey() { return new Date().toISOString().slice(0, 7); }
+function recordUsage(input, output) {
+  const u = store.get('aiUsage', {});
+  const k = monthKey();
+  const m = u[k] || { calls: 0, in: 0, out: 0 };
+  m.calls++; m.in += +input || 0; m.out += +output || 0;
+  store.set('aiUsage', { [k]: m });
+}
+export function aiUsage() { return { calls: 0, in: 0, out: 0, ...(store.get('aiUsage', {})[monthKey()] || {}) }; }
+
+export function ask(prompt, opts) { return chat([{ role: 'user', content: prompt }], opts); }
+
+/** Conversation à plusieurs tours : messages = [{ role: 'user' | 'assistant', content }]. */
+export async function chat(messages, { maxTokens = 700, system = SYSTEM } = {}) {
   if (!hasKey()) throw new AIError('no_key', 'Choisis une IA et ajoute ta clé dans les réglages (⚙︎ → Professeur IA).');
   const pid = conf().pid;
   // marge pour les modèles qui « réfléchissent » avant d'écrire
   const budget = pid === 'anthropic' ? maxTokens : Math.max(maxTokens * 4, 4000);
-  let r = await call(prompt, system, budget);
+  let r = await call(messages, system, budget);
   if (r.text.trim()) return r.text.trim();
-  r = await call(prompt, system, Math.max(budget * 2, 8000));
+  r = await call(messages, system, Math.max(budget * 2, 8000));
   if (r.text.trim()) return r.text.trim();
   throw new AIError('empty', `Le modèle n'a renvoyé aucun texte${r.finish ? ` (fin : ${r.finish})` : ''}. Choisis un modèle plus direct (par ex. Claude Haiku, une version « mini » ou « flash »).`);
 }
@@ -167,4 +183,3 @@ Règles :
 - Sois bref : 3 à 5 phrases, puis une ligne « À retenir : … » avec un réflexe simple et réutilisable (par ex. la routine Échecs · Prises · Menaces).
 - Pas de jargon inutile, pas de titres, pas de markdown, pas de listes longues.`;
 
-void store;

@@ -5,16 +5,19 @@ import * as puzzles from './puzzles.js';
 import * as play from './play.js';
 import * as analysis from './analysis.js';
 import * as notebook from './notebook.js';
+import * as cours from './cours.js';
+import { recommandation, avancement } from './eleve.js';
 import { puzzleProfile, THEMES } from './puzzles.js';
 import { dueMistakes, weaknessStats, CATEGORIES, listGames } from './games.js';
 import { advice } from './notebook.js';
 import { engine } from './engine.js';
 import { playerRating, setInitialElo } from './rating.js';
+import { usageTexte } from './prof.js';
 import { PROVIDERS, providerById, aiSettings, saveAiSettings, hasKey, aiName, listModels, testAI, cleanKey, guessProvider, tengenAiSettings } from './ai.js';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.4.0';
 
-const ROUTES = { '': home(), problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
+const ROUTES = { '': home(), cours, problemes: puzzles, jouer: play, analyse: analysis, carnet: notebook };
 let current = null;
 
 function parseHash() {
@@ -62,6 +65,8 @@ function home() {
       const hello = hour < 6 || hour >= 18 ? 'Bonsoir' : 'Bonjour';
       const name = s.playerName && s.playerName !== 'Moi' ? `, ${esc(s.playerName)}` : '';
       const theme = store.get('puzzleTheme', 'mix');
+      const reco = recommandation(), av = avancement();
+      const recoMot = { continuer: 'Reprendre', revision: 'Réviser', faiblesse: 'Choisie pour toi', suite: 'Leçon du jour', fini: 'Programme terminé' }[reco.type];
       root.innerHTML = `
       <div class="stack">
         <div class="hero">
@@ -73,6 +78,11 @@ function home() {
             <div class="stat"><b>${ps.wins}–${ps.draws}–${ps.losses}</b><span>parties (V–N–D)</span></div>
           </div>
         </div>
+        <a class="card cours-home" href="${reco.lecon ? `#/cours?l=${reco.lecon.id}${reco.type === 'revision' ? '&rev=1' : ''}` : '#/cours'}">
+          ${ICONS.school}
+          <span class="grow"><span class="badge">${recoMot}</span><b>${reco.lecon ? esc(reco.lecon.titre) : 'Tes cours'}</b>
+            <span class="small muted">${reco.lecon ? `${esc(reco.lecon.module.titre)} · ${reco.lecon.duree} min · ` : ''}${av.faites}/${av.total} leçons validées</span></span>
+        </a>
         <div class="actions">
           <a class="action" href="#/problemes">${ICONS.puzzle}<b>Problèmes</b><span>Thème : ${THEMES[theme] || 'Mélange'} · adaptés à ton niveau</span></a>
           <a class="action" href="#/jouer">${ICONS.play}<b>${cur ? 'Reprendre' : 'Jouer'}</b><span>${cur ? 'Ta partie t\'attend' : '15 personnages, dont 9 qui jouent comme des humains'}</span></a>
@@ -125,7 +135,8 @@ function openSettings() {
         <div class="row between" style="flex-wrap:nowrap"><div style="min-width:0"><b>Professeur IA</b>
           <p class="muted small" style="margin:2px 0 0" id="st-ai-name">${hasKey() ? esc(aiName()) : 'Pas encore configuré'}</p></div>
           <button class="btn sm" id="st-ai">Configurer</button></div>
-        <p class="muted small" style="margin:6px 0 0">Claude, ChatGPT, Gemini, Grok, OpenRouter… comme dans Tengen. Sert aux boutons « Expliquer ».</p>
+        <p class="muted small" style="margin:6px 0 0">Claude, ChatGPT, Gemini, Grok, OpenRouter… comme dans Tengen. Il anime les cours, débriefe tes parties, prépare tes cours particuliers et répond à tes questions.</p>
+        <p class="muted tiny" style="margin:4px 0 0">${esc(usageTexte())}</p>
       </div>
       <div class="grid2">
         <label class="field">Pseudo Lichess<input id="st-li" value="${esc(s.lichessUser)}" autocapitalize="off"></label>
@@ -219,7 +230,7 @@ function openAISettings(onDone) {
       const shown = (models || []).filter(x => !filter || x.toLowerCase().includes(filter.toLowerCase())).slice(0, 60);
       root.innerHTML = `
         <h3>Professeur IA</h3>
-        <p class="small muted" style="margin:0 0 10px">Avec une clé API, une IA t'explique tes erreurs, les problèmes et les positions. Les clés sont enregistrées <b>uniquement sur cet appareil</b> et ne servent qu'à appeler directement le fournisseur choisi. Les API sont facturées à part des abonnements (ChatGPT Plus, Claude Pro…) : crée une clé dédiée avec un plafond de dépenses.</p>
+        <p class="small muted" style="margin:0 0 10px">Avec une clé API, une IA devient ton professeur : elle répond pendant les leçons, débriefe tes parties, bâtit des cours sur tes erreurs et rédige ton bulletin. Elle s'appuie toujours sur Stockfish, jamais sur son propre calcul. Les clés sont enregistrées <b>uniquement sur cet appareil</b> et ne servent qu'à appeler directement le fournisseur choisi. Les API sont facturées à part des abonnements (ChatGPT Plus, Claude Pro…) : crée une clé dédiée avec un plafond de dépenses.</p>
         ${tg ? `<div class="card" style="box-shadow:none;margin-bottom:10px"><div class="row between"><span class="small">Tes réglages d'IA de <b>Tengen</b> sont disponibles ici.</span><button class="btn sm primary" id="ai-tg">Reprendre</button></div></div>` : ''}
         <b class="small">Fournisseur</b>
         <div class="prov-list">${PROVIDERS.map(p => `<button class="prov ${ai.provider === p.id ? 'on' : ''}" data-p="${p.id}"><span><b>${p.name}</b><small>${p.brand} · ${esc(p.note)}</small></span>${ai.provider === p.id ? '<span class="badge">Choisi</span>' : ai.keys[p.id] ? '<span class="badge good">Clé enregistrée</span>' : ''}</button>`).join('')}</div>
@@ -293,6 +304,7 @@ const ICONS = {
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
   expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
   shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
+  school: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9L12 4.5 21.5 9 12 13.5z"/><path d="M6.5 11.2V16c1.6 1.6 3.4 2.4 5.5 2.4s3.9-.8 5.5-2.4v-4.8"/><path d="M21.5 9v5.5"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
 };
 
@@ -330,12 +342,14 @@ function boot() {
   applyFocus(store.get('focus', false));
   $('#tabs').innerHTML = `<div class="tabbar-in">
     <a class="tab" data-r="" href="#/">${ICONS.home}Accueil</a>
+    <a class="tab" data-r="cours" href="#/cours">${ICONS.school}Cours</a>
     <a class="tab" data-r="problemes" href="#/problemes">${ICONS.puzzle}Problèmes</a>
     <a class="tab" data-r="jouer" href="#/jouer">${ICONS.play}Jouer</a>
     <a class="tab" data-r="analyse" href="#/analyse">${ICONS.analyse}Analyse</a>
     <a class="tab" data-r="carnet" href="#/carnet">${ICONS.book}Carnet</a></div>`;
   $('#btn-settings').innerHTML = ICONS.gear;
   $('#btn-settings').onclick = openSettings;
+  document.addEventListener('caissa:ai-settings', () => openAISettings(() => route()));
   window.addEventListener('hashchange', route);
   route();
   // le moteur démarre en arrière-plan pour être prêt plus vite

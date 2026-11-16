@@ -110,6 +110,20 @@ async function pickPuzzle(theme) {
   return fresh[0];
 }
 
+/** Tire jusqu'à n problèmes d'un thème, proches du niveau donné (contrôles des leçons). */
+export async function drawPuzzles(theme, n, rating) {
+  const match = p => p.themes.includes(theme);
+  const local = await loadLocal();
+  let pool = [...local, ...lichessPool()].filter(match);
+  if (pool.length < n * 3 && navigator.onLine) {
+    try { await Promise.race([fetchLichess(theme, rating), new Promise((_, rej) => setTimeout(() => rej(new Error('délai')), 6000))]); } catch (e) { console.warn(e); }
+    pool = [...local, ...lichessPool()].filter(match);
+  }
+  const seen = seenSet();
+  const score = p => Math.abs(p.rating - rating) + (seen.has(p.id) ? 400 : 0) + Math.random() * 150;
+  return pool.map(p => [score(p), p]).sort((a, b) => a[0] - b[0]).slice(0, n).map(x => x[1]);
+}
+
 // --- vue ------------------------------------------------------------------------
 let state = null;
 

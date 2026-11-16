@@ -8,6 +8,7 @@ import { gameFromChess, saveGame } from './games.js';
 import { BOTS, botById, avatar, chooseMove, pick, paramsForElo, humanMove, humanParams } from './bots.js';
 import { loadMaia, movePolicy } from './maia.js';
 import { playerRating, applyResult, stakes } from './rating.js';
+import { mountChat, contextePosition, MODE_PARTIE } from './prof.js';
 
 const CADENCES = [
   { id: 'none', label: 'Sans pendule', base: 0, inc: 0 },
@@ -155,7 +156,7 @@ function startGame(root, g) {
         <button class="btn sm" data-n="next" aria-label="Coup suivant">▶</button><button class="btn sm" data-n="last" aria-label="Position actuelle">⏭</button>
         ${rated ? '' : `<button class="btn sm" id="pl-undo">↶ Annuler mon coup</button>`}
       </div>
-      ${rated ? '' : `<div class="toolbar"><button class="btn sm" id="pl-hint">Indice</button><button class="btn sm" id="pl-threat">Menace adverse</button></div>`}
+      ${rated ? '' : `<div class="toolbar"><button class="btn sm" id="pl-hint">Indice</button><button class="btn sm" id="pl-threat">Menace adverse</button><button class="btn sm" id="pl-prof">Professeur</button></div>`}
     </div>
     <div class="side stack">
       <div class="card">
@@ -187,6 +188,7 @@ function startGame(root, g) {
   $('#pl-undo', root)?.addEventListener('click', takeback);
   $('#pl-hint', root)?.addEventListener('click', hint);
   $('#pl-threat', root)?.addEventListener('click', threat);
+  $('#pl-prof', root)?.addEventListener('click', askProf);
   $('#pl-nav', root).addEventListener('click', e => {
     const b = e.target.closest('[data-n]'); if (!b) return;
     const n = S.chess.history().length;
@@ -285,6 +287,26 @@ function status(extra) {
   } else t = '…';
   $('#pl-status', S.root).textContent = t;
   $('#pl-sub', S.root).textContent = sub || '';
+}
+
+// Le professeur pendant une partie d'entraînement : il aide à réfléchir, sans donner le coup.
+function askProf() {
+  if (!S) return;
+  modal(`<h3>Le professeur</h3><p class="small muted" style="margin:0 0 8px">Il t'aide à réfléchir sur la position, sans jouer à ta place. La pendule continue de tourner.</p>
+    <div id="pl-prof-chat"></div><div class="row end" style="margin-top:10px"><button class="btn ghost" data-close>Retour à la partie</button></div>`, {
+    wide: true,
+    onMount: m => mountChat($('#pl-prof-chat', m), {
+      mode: MODE_PARTIE,
+      suggestions: ['Que menace son dernier coup ?', 'Mes pièces sont-elles en sécurité ?', 'Quel plan pour moi ?'],
+      sansCle: 'Avec une clé API, le professeur t\'aide à réfléchir pendant tes parties d\'entraînement.',
+      contexte: async q => {
+        if (!S) return '';
+        const hist = S.chess.history({ verbose: true }), last = hist[hist.length - 1];
+        const who = S.bot.custom ? 'Caïssa' : S.bot.name;
+        return `Partie d'entraînement en cours : l'élève joue les ${COLOR_FR[S.g.you]} contre ${who} (${S.bot.elo} Elo). Coup n° ${Math.floor(hist.length / 2) + 1}.${last ? ` Dernier coup joué : ${moveLabel(last, hist.length - 1)}.` : ''}\n\n${await contextePosition(S.chess.fen(), q)}`;
+      },
+    }),
+  });
 }
 
 // --- pendule ---------------------------------------------------------------------------

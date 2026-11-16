@@ -1,10 +1,10 @@
 // Service worker : l'appli et Stockfish fonctionnent hors ligne après la première visite.
-const CACHE = 'caissa-v1.3.0';
+const CACHE = 'caissa-v1.4.0';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/pieces.css',
   'js/app.js', 'js/board.js', 'js/engine.js', 'js/store.js', 'js/util.js', 'js/coach.js', 'js/ai.js',
-  'js/games.js', 'js/bots.js', 'js/rating.js', 'js/openings.js', 'js/maia.js', 'js/puzzles.js', 'js/play.js', 'js/analysis.js', 'js/notebook.js', 'js/lib/chess.js',
+  'js/games.js', 'js/bots.js', 'js/rating.js', 'js/openings.js', 'js/maia.js', 'js/puzzles.js', 'js/play.js', 'js/analysis.js', 'js/notebook.js', 'js/cours.js', 'js/cours-data.js', 'js/eleve.js', 'js/prof.js', 'js/lib/chess.js',
   'engine/stockfish-19-lite-single.js', 'engine/stockfish-19-lite-single.wasm',
   'data/puzzles.json', 'maia/policy.json',
   'fonts/cormorant-garamond-latin-500-normal.woff2', 'fonts/cormorant-garamond-latin-600-normal.woff2',

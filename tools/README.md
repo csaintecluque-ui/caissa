@@ -5,3 +5,5 @@
   `python3 -m grpc_tools.protoc -I. --python_out=. net.proto && python3 convert.py maia-1100.pb.gz maia-1100.bin`
 - `calibration-match.mjs` (+ `uci.js`) : matchs entre personnages sous Node pour mesurer leur Elo
   (ancrage : Maia 1100 sans filtre = 1100, échelle Lichess). Résultats utilisés dans `js/bots.js`.
+- `verifier-cours.mjs` : contrôle toutes les positions du programme de cours (`js/cours-data.js`) avec Stockfish — positions
+  légales, solutions confirmées, mats et finales jouables. À relancer après chaque modification d'une leçon : `node tools/verifier-cours.mjs`.

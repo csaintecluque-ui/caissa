@@ -6,7 +6,9 @@ import { store, settings } from './store.js';
 import { engine, lineWin, formatEval } from './engine.js';
 import { listGames, getGame, saveGame, deleteGame, analyseGame, addMistakesFromAnalysis, LABELS, CATEGORIES, CLASSES, CLASS_ORDER, ANALYSIS_VERSION, describeResult,
   fetchLichessGames, fetchChesscomGames, mergeImported, splitPgn, parsePgnGame, pgnOf, summarize } from './games.js';
-import { askClaude, explainMovePrompt, explainPositionPrompt, hasKey } from './coach.js';
+import { askClaude, explainMovePrompt, explainPositionPrompt, hasKey, describeLine } from './coach.js';
+import { debrief, mountChat, contextePosition, sansCle } from './prof.js';
+import { leconById } from './cours-data.js';
 
 let A = null;
 
@@ -121,7 +123,9 @@ function openFen(root, fen) {
   A = { root, board, g: null, base: [new Chess(fen).fen()], sans: [], ply: 0, variation: [], showBest: false, cancelled: false };
   board.setOrientation(fen.split(' ')[1]);
   $('#an-side', root).innerHTML = `<div class="card" id="an-current"></div><div class="card"><div class="row between"><h3>Moteur</h3><span class="muted small" id="an-depth"></span></div><div class="engine-lines" id="an-lines"></div></div>
+    <div class="card"><h3>Demander au professeur</h3><div id="an-prof"></div></div>
     <div class="card"><p class="muted small" style="margin:0">Joue des coups sur l'échiquier pour explorer : Stockfish évalue chaque position.</p></div>`;
+  mountProf();
   bindNav();
   show();
 }
@@ -138,12 +142,15 @@ function openGame(root, g, auto) {
   A = { root, board, g, base, sans, ucis, ply: 0, variation: [], showBest: false, cancelled: false, an: g.analysis };
   $('#an-side', root).innerHTML = `
     <div class="card" id="an-summary"></div>
+    <div class="card hidden" id="an-debrief"></div>
     <div class="card" id="an-current"></div>
+    <div class="card"><h3>Demander au professeur</h3><div id="an-prof"></div></div>
     <div class="card"><div class="row between" style="margin-bottom:6px"><h3>Coups</h3><button class="btn sm ghost" id="an-pgn">Copier le PGN</button></div><div class="moves" id="an-moves" style="max-height:300px"></div></div>
     <div class="card"><div class="row between"><h3>Moteur</h3><span class="muted small" id="an-depth"></span></div><div class="engine-lines" id="an-lines"></div></div>`;
   $('#an-pgn', root).onclick = async () => { try { await navigator.clipboard.writeText(pgnOf(g)); toast('PGN copié.'); } catch { toast('Copie impossible.'); } };
   $('#an-moves', root).addEventListener('click', e => { const m = e.target.closest('[data-p]'); if (m) go(+m.dataset.p); });
   bindNav();
+  mountProf();
   renderSummary();
   renderMoves();
   go(g.analysis ? firstKeyMoment() : 0);
@@ -427,6 +434,66 @@ function renderSummary() {
   el.querySelectorAll('[data-k]').forEach(b => b.onclick = () => go(+b.dataset.k + 1));
   bindSideChooser(el);
   renderGraph();
+  renderDebrief();
+}
+
+// --- le professeur : débrief de la partie et questions sur la position -----------------------
+function renderDebrief() {
+  const el = $('#an-debrief', A.root);
+  if (!el) return;
+  const g = A.g, d = g.debrief;
+  el.classList.toggle('hidden', !(g.analysis && g.you));
+  if (!g.analysis || !g.you) return;
+  if (!d) {
+    el.innerHTML = `<h3>Débrief du professeur</h3>
+      <p class="small muted" style="margin:0 0 10px">Le professeur relit ta partie avec les analyses de Stockfish, revient sur les moments qui ont compté et te donne une priorité pour la prochaine.</p>
+      <button class="btn primary block" id="db-go">Demander le débrief</button><div id="db-msg" style="margin-top:8px"></div>`;
+    $('#db-go', el).onclick = () => runDebrief();
+    return;
+  }
+  const lecon = d.lecon ? leconById(d.lecon) : null;
+  el.innerHTML = `<div class="row between"><h3>Débrief du professeur</h3><span class="tiny muted">${fmtDate(d.at)}</span></div>
+    ${d.resume ? `<div class="coach">${esc(d.resume)}</div>` : ''}
+    ${d.moments.map(m => `<div class="moment"><button class="chip" data-dk="${m.k}">${clsIcon(m.cls)} ${esc(moveLabel(m.k))}</button><div class="coach">${esc(m.texte)}</div></div>`).join('')}
+    ${d.travail ? `<p class="bu-h">Ta priorité pour la prochaine partie</p><div class="coach">${esc(d.travail)}</div>` : ''}
+    ${lecon ? `<a class="btn primary block" style="margin-top:10px" href="#/cours?l=${lecon.id}">Leçon conseillée : ${esc(lecon.titre)}</a>` : ''}
+    <div class="row between" style="margin-top:8px"><span class="tiny muted">${esc(d.par || '')}</span><button class="btn sm ghost" id="db-go">Refaire le débrief</button></div><div id="db-msg" style="margin-top:8px"></div>`;
+  el.querySelectorAll('[data-dk]').forEach(b => { b.onclick = () => { go(+b.dataset.dk + 1); A.root.querySelector('.board')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }; });
+  $('#db-go', el).onclick = () => runDebrief();
+}
+async function runDebrief() {
+  const a = A, msg = $('#db-msg', a.root), btn = $('#db-go', a.root);
+  if (!hasKey()) { sansCle(msg, 'Le débrief est rédigé par le professeur : il lui faut une clé API.'); return; }
+  btn.disabled = true;
+  msg.innerHTML = '<div class="coach loading">Le professeur relit ta partie…</div>';
+  try { await debrief(a.g); if (A === a) renderDebrief(); }
+  catch (e) { if (A === a) { msg.innerHTML = `<div class="fb ko">${esc(e.message)}</div>`; btn.disabled = false; } }
+}
+function mountProf() {
+  const el = $('#an-prof', A.root);
+  if (!el) return;
+  mountChat(el, {
+    contexte: q => contexteAnalyse(q),
+    suggestions: ['Quel est le plan ici ?', 'Que menace l\'adversaire ?', 'Quelle est ma pièce la moins bien placée ?'],
+    sansCle: 'Avec une clé API, pose ici tes questions sur la position (« pourquoi pas Cf3 ? »).',
+  });
+}
+async function contexteAnalyse(q) {
+  const a = A; if (!a) return '';
+  const fen = curFen();
+  let t = '';
+  if (a.g) {
+    t += `Analyse d'une partie : ${a.g.white} contre ${a.g.black} (${a.g.result}).${a.g.you ? ` L'élève avait les ${a.g.you === 'w' ? 'Blancs' : 'Noirs'}.` : ''}`;
+    const an = a.g.analysis;
+    if (a.variation.length) t += `\nL'élève explore une variante à partir du coup ${a.ply} de la partie : ${numberedSan(a.base[a.ply], a.variation.map(v => sanFr(v.san)))}.`;
+    else if (a.ply > 0) {
+      const k = a.ply - 1;
+      t += `\nDernier coup joué dans la partie (celui qui mène à la position actuelle) :\n${describeLine(a.base[k], [a.g.moves[k]], 1)}`;
+      if (an?.moves[k]) t += `\nCe coup est classé « ${CLASSES[an.moves[k].cls]?.name} » par le moteur.${an.moves[k].category ? ` Type d'erreur : ${CATEGORIES[an.moves[k].category]}.` : ''}${an.moves[k].bestSan && an.moves[k].best !== an.moves[k].uci ? ` Le moteur préférait ${sanFr(an.moves[k].bestSan)}.` : ''}`;
+    } else t += '\nPosition de départ de la partie.';
+    t += '\n\n';
+  }
+  return t + await contextePosition(fen, q, { lines: a.liveLines });
 }
 function trim(s) { return s.length > 14 ? s.slice(0, 13) + '…' : s; }
 function moveLabel(i) {
